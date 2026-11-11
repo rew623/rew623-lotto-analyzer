@@ -107,6 +107,41 @@ function fixedLines(no, n = 10){
   }
   return out;
 }
+const METHODS = [
+  ['basic', '기본', '많이 고르는 모양(생일 번호만·연속 여러 쌍·등차·한쪽 몰림)을 피해 무작위로'],
+  ['random', '완전 무작위', '자동과 같음'],
+  ['hot', '핫 번호', '최근 30회 많이 나온 20개 중에서'],
+  ['cold', '콜드 번호', '최근 30회 적게 나온 20개 중에서'],
+  ['overdue', '미출현 번호', '오래 안 나온 20개 중에서'],
+  ['filter', '패턴 맞춤', '홀짝·고저 2~4, 합 100~175, 연속 1쌍 이하, AC 7 이상인 조합만'],
+];
+const Pref = {
+  get(){ return {method: 'basic', lines: 10, ...LS.get('pref', {})}; },
+  set(p){ LS.set('pref', {...this.get(), ...p}); },
+};
+function methodPick(key){
+  const c = (k) => { const m = {}; D.slice(-k).forEach(d => d.n.forEach(x => m[x] = (m[x] || 0) + 1)); return m; };
+  const all = Array.from({length: 45}, (_, i) => i + 1);
+  let pool = null;
+  if(key === 'hot'){ const m = c(30); pool = [...all].sort((a, b) => (m[b] || 0) - (m[a] || 0) || a - b).slice(0, 20); }
+  if(key === 'cold'){ const m = c(30); pool = [...all].sort((a, b) => (m[a] || 0) - (m[b] || 0) || a - b).slice(0, 20); }
+  if(key === 'overdue'){ const last = {}; D.forEach((d, i) => d.n.forEach(x => last[x] = i)); pool = [...all].sort((a, b) => (last[a] ?? -1) - (last[b] ?? -1) || a - b).slice(0, 20); }
+  return {pool, avoid: key === 'basic', filter: key === 'filter', ov: key === 'basic' || key === 'filter' ? 2 : key === 'random' ? 6 : 3};
+}
+// 같은 규칙으로 변형 v 번째 추천(회차·방식·변형으로 씨앗) — 변형 0 이면 update.py 가 만든 값을 그대로
+function recLines(no, key, v, n){
+  if(!v && A?.rec_next?.[key] && D[D.length - 1].no + 1 === no) return A.rec_next[key].slice(0, n);
+  const M = methodPick(key), r = seeded(no * 2654435761 + v * 40503 + key.length * 977), past = new Set(D.map(d => d.n.join())), out = [];
+  for(let t = 0; t < 20000 && out.length < n; t++){
+    const src = M.pool || Array.from({length: 45}, (_, i) => i + 1), a = [...src];
+    for(let i = a.length - 1; i > 0; i--){ const j = Math.floor(r() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+    const s = a.slice(0, 6).sort((x, y) => x - y), k = s.join();
+    if(past.has(k) || out.some(o => o.join() === k) || (M.avoid && crowdy(s)) || (M.filter && !passFilter(feats(s)))) continue;
+    if(out.some(o => o.filter(x => s.includes(x)).length > M.ov)) continue;
+    out.push(s);
+  }
+  return out;
+}
 function gen(o){
   const past = new Set(D.map(d => d.n.join()));
   for(let t = 0; t < 5000; t++){
@@ -189,8 +224,11 @@ $('scanFile').onchange = async (e) => {
 let timer = null, poll = null;
 function renderHome(){
   const last = D[D.length - 1], sc = schedule();
-  const rec = {draw: sc.no, lines: fixedLines(sc.no)};
-  const picked = new Set(LS.get('picked' + sc.no, [0, 1, 2, 3, 4]));
+  const P = Pref.get(), vkey = 'var' + sc.no, v = LS.get(vkey, 0);
+  const rec = {draw: sc.no, lines: recLines(sc.no, P.method, v, P.lines)};
+  const pkey = `picked${sc.no}.${P.method}.${v}`;
+  const picked = new Set(LS.get(pkey, Array.from({length: Math.min(5, rec.lines.length)}, (_, i) => i)));
+  const mName = METHODS.find(m => m[0] === P.method)?.[1] || '기본';
   const mineNext = Tickets.all().filter(t => t.draw === sc.no).reduce((a, t) => a + t.lines.length, 0);
   $('main').innerHTML = `
     <section class="card hero">
@@ -211,8 +249,8 @@ function renderHome(){
       <p class="cap" style="margin:0;">1등 ${last.w1 != null ? fmt(last.w1) + '명' : '-'} · 1인당 ${won(last.p1)}</p>
     </section>
     <section class="card">
-      <div class="row" style="justify-content:space-between;"><h2>${sc.no}회 추천 10줄</h2><span class="pill">이번 회차 고정</span></div>
-      ${fold('어떻게 고른 번호인가요?', '회차 번호로 정해진 고정 10줄이라 몇 번을 열어도 같습니다. 사람들이 많이 고르는 모양(생일 번호만, 연속 여러 쌍, 등차, 한쪽 몰림)과 역대 1등 조합을 빼고, 10줄끼리 3개 넘게 겹치지 않게 골랐습니다. 어떤 번호든 한 줄 1등 확률은 1/8,145,060로 같고, 당첨됐을 때 나눠 가질 사람이 적은 쪽입니다. 근거는 분석 탭.')}
+      <div class="row" style="justify-content:space-between;"><h2>${sc.no}회 추천 ${rec.lines.length}줄</h2><button class="pill link" data-goto="settings" type="button">${esc(mName)}${v ? ` · ${v + 1}번째` : ''} ›</button></div>
+      ${fold('어떻게 고른 번호인가요?', `이번 회차엔 고정이라 몇 번을 열어도 같습니다. 방식: ${esc(METHODS.find(m => m[0] === P.method)?.[2] || '')}. 역대 1등 조합은 빼고, 줄끼리 많이 겹치지 않게 골랐습니다. 방식은 설정에서 바꿉니다. 지난 회차에 이 방식을 썼다면 어땠는지는 분석 탭 '추천 방식 성적표'.`)}
       <div class="lines" id="recL">${rec.lines.map((s, i) => `<button type="button" class="ln pickable ${picked.has(i) ? 'on' : ''}" data-i="${i}"><span class="lab">${i + 1}</span><span class="balls">${s.map(n => ball(n, 'sm')).join('')}</span><span class="tick">${picked.has(i) ? '✓' : ''}</span></button>`).join('')}</div>
       <p class="cap" style="margin:10px 0 0;">살 줄을 눌러 고르세요 · ${picked.size}줄 ${fmt(picked.size * 1000)}원${picked.size > 5 ? ' · 인터넷 구매는 1주 5천 원까지' : ''}</p>
       <div class="row" style="margin-top:10px;"><a class="btn gold" href="${LINKS.buy}" target="_blank" rel="noopener">🛒 동행복권에서 사기</a><button class="btn ghost" id="keep" type="button" ${picked.size ? '' : 'disabled'}>내 복권에 담기</button></div>
@@ -220,7 +258,7 @@ function renderHome(){
   $('recL').onclick = (e) => {
     const b = e.target.closest('[data-i]'); if(!b) return;
     const k = +b.dataset.i; picked.has(k) ? picked.delete(k) : picked.add(k);
-    LS.set('picked' + sc.no, [...picked]); renderHome();
+    LS.set(pkey, [...picked]); renderHome();
   };
   $('keep').onclick = () => {
     const ls = [...picked].sort((a, b) => a - b).map(k => rec.lines[k]);
@@ -291,18 +329,34 @@ function renderManual(){
 
 // ---------------------------------------------------------------- 분석
 function renderAnalysis(){
-  const segs = [['rank', '🏆 분석법 승률'], ['nums', '🔢 번호 통계'], ['pattern', '🧩 패턴']];
+  const segs = [['rank', '🏆 성적표'], ['nums', '🔢 번호 통계'], ['pattern', '🧩 패턴']];
   const body = anaSeg === 'nums' ? anaNums() : anaSeg === 'pattern' ? anaPattern() : anaRank();
   $('main').innerHTML = `<div class="seg" id="seg">${segs.map(([k, t]) => `<button type="button" data-s="${k}" class="${anaSeg === k ? 'on' : ''}">${t}</button>`).join('')}</div>${body}`;
   $('seg').onclick = (e) => { const b = e.target.closest('[data-s]'); if(b){ anaSeg = b.dataset.s; LS.set('anaSeg', anaSeg); renderAnalysis(); } };
   const ss = $('nSort'); if(ss){ ss.value = LS.get('nSort', 'freq'); ss.onchange = () => { LS.set('nSort', ss.value); renderAnalysis(); }; }
+}
+function recReport(){
+  const BT = A.rec_bt; if(!BT) return '';
+  const P = Pref.get(), L = BT.methods[0].lines;
+  // 무작위 한 줄 기대: 5등 22.4‰ · 4등 1.36‰ · 3등 0.028‰
+  const e5 = L * 0.0224384, e4 = L * 0.0013649, sd5 = Math.sqrt(e5), sd4 = Math.sqrt(e4);
+  const recent = BT.recent[P.method] || [];
+  const rk = (m) => m >= 6 ? '1등' : m === 5 ? '3등↑' : m === 4 ? '4등' : m === 3 ? '5등' : '';
+  return `<section class="card"><h2>추천 방식 성적표</h2><p class="cap">${fmt(BT.from)}회부터 ${fmt(BT.methods[0].draws)}회, 그 회차 직전 기록만으로 10줄씩 샀다면 · 1줄 1,000원</p>
+      <table><thead><tr><th>방식</th><th class="n">5등</th><th class="n">4등</th><th class="n">3등↑</th><th class="n">회수율</th></tr></thead>
+      <tbody>${BT.methods.map(m => `<tr class="${m.key === P.method ? 'meta' : ''}"><td>${esc(METHODS.find(x => x[0] === m.key)?.[1] || m.name)}</td><td class="n">${fmt(m.rank[4])}</td><td class="n">${fmt(m.rank[3])}</td><td class="n">${fmt(m.rank[0] + m.rank[1] + m.rank[2])}</td><td class="n"><b>${fmt(m.roi, 1)}%</b></td></tr>`).join('')}
+        <tr><td class="cap">무작위 기대값</td><td class="n cap">${fmt(e5)}</td><td class="n cap">${fmt(e4, 1)}</td><td class="n cap">${fmt(L * 0.0000288, 1)}</td><td class="n cap">-</td></tr></tbody></table>
+      ${fold('결과 읽는 법', `${fmt(L)}줄씩 샀을 때 무작위라도 5등은 ${fmt(e5)}번 ± ${fmt(sd5 * 2)}, 4등은 ${fmt(e4, 1)}번 ± ${fmt(sd4 * 2, 1)} 정도는 운으로 오르내립니다. 모든 방식이 이 범위 안이라 어느 방식도 확률이 더 높지 않습니다. 회수율은 3등 한 번만 나와도 크게 뛰어서(미출현 방식이 그 경우) 방식의 실력보다 운을 더 많이 보여 줍니다. 1·2등은 한 번도 없었고, 이론적으로도 1,149회×10줄이면 1등 기대는 0.0014번입니다.`)}
+      <h3>지금 방식(${esc(METHODS.find(x => x[0] === P.method)?.[1] || '')}) 최근 30회</h3>
+      <div class="recent">${recent.slice().reverse().map(([no, m]) => `<span class="rc m${Math.min(m, 5)}" title="${no}회 가장 많이 맞은 줄 ${m}개"><b>${m}</b><small>${no}</small>${rk(m) ? `<i>${rk(m)}</i>` : ''}</span>`).join('')}</div>
+      <p class="cap" style="margin:8px 0 0;">숫자 = 그 회차 10줄 중 가장 많이 맞은 개수</p></section>`;
 }
 function anaRank(){
   const B = A.backtest, R = [...B.methods].sort((a, b) => b.ge3 - a.ge3 || b.mean - a.mean);
   const lo = B.theory_ge3 - 1.96 * B.ge3_se, hi = B.theory_ge3 + 1.96 * B.ge3_se;
   const beat = R.filter(m => m.ge3 > hi);
   const E = A.elim || [];
-  return `<div class="note"><b>${beat.length ? '무작위보다 확실히 나은 방법이 있습니다' : '1위 방법도 무작위와 구별되지 않습니다'}</b>
+  return recReport() + `<div class="note"><b>${beat.length ? '무작위보다 확실히 나은 방법이 있습니다' : '1위 방법도 무작위와 구별되지 않습니다'}</b>
       ${fold('자세히', `승률 = 5등 이상(3개↑) 맞은 비율. 무작위 이론값 ${fmt(B.theory_ge3, 2)}%, 운으로 나오는 범위 ${fmt(lo, 2)}~${fmt(hi, 2)}%. 모든 방법이 이 안에 있습니다. '그때그때 승률 1위 방법 따라가기'도 표본외로 시험했지만 같은 범위입니다.`)}</div>
     ${A.how1?.draws ? (() => { const h = A.how1, t = h.auto + h.semi + h.manual; return `<section class="card"><h2>분석해서 산 사람이 더 잘 맞나?</h2><p class="cap">1등 당첨자가 번호를 고른 방식 · ${fmt(h.from)}회부터 ${fmt(h.draws)}회, ${fmt(t)}명</p>
       <div class="split"><div><b>${fmt(h.auto / t * 100, 1)}%</b><span>자동</span></div><div><b>${fmt(h.manual / t * 100, 1)}%</b><span>수동(직접 고름)</span></div><div><b>${fmt(h.semi / t * 100, 1)}%</b><span>반자동</span></div></div>
@@ -350,7 +404,23 @@ function anaPattern(){
 }
 
 // ---------------------------------------------------------------- 공통
-const VIEWS = {home: renderHome, tickets: renderTickets, analysis: renderAnalysis};
+function renderSettings(){
+  const P = Pref.get(), sc = schedule(), v = LS.get('var' + sc.no, 0), BT = A.rec_bt;
+  const bt = (k) => BT?.methods.find(m => m.key === k);
+  $('main').innerHTML = `<section class="card"><h2>추천 방식</h2><p class="cap">홈의 추천 번호를 어떤 방식으로 고를지. 지난 ${BT ? fmt(BT.methods[0].draws) : '-'}회에 10줄씩 썼다면의 성적도 같이</p>
+      <div class="opts">${METHODS.map(([k, t, d]) => { const b = bt(k); return `<button type="button" class="optc ${P.method === k ? 'on' : ''}" data-m="${k}"><span class="r"></span><span class="t"><b>${esc(t)}</b><small>${esc(d)}</small>${b ? `<small class="bt">5등 ${fmt(b.rank[4])} · 4등 ${fmt(b.rank[3])}${b.rank[2] ? ` · 3등 ${b.rank[2]}` : ''} · 회수율 ${fmt(b.roi, 1)}%</small>` : ''}</span></button>`; }).join('')}</div>
+      ${fold('어느 방식이 제일 좋나요?', '성적 차이는 운으로 생기는 범위 안이라 어느 방식도 확률이 더 높지 않습니다(분석 탭 성적표). 기본은 당첨됐을 때 나눠 가질 사람이 적은 쪽이라 골라 두었습니다.')}</section>
+    <section class="card"><h2>줄 수</h2><div class="seg" style="margin:8px 0 0;">${[5, 10].map(n => `<button type="button" data-n="${n}" class="${P.lines === n ? 'on' : ''}">${n}줄</button>`).join('')}</div></section>
+    <section class="card"><h2>새 추천 받기</h2><p class="cap">같은 방식으로 ${sc.no}회 번호를 다시 뽑습니다. 지금 ${v + 1}번째 추천</p>
+      <div class="row"><button class="btn" id="newRec" type="button">🎲 새 추천 받기</button>${v ? '<button class="btn ghost" id="resetRec" type="button">처음 추천으로</button>' : ''}</div></section>
+    <section class="card"><h2>앱 정보</h2><p class="cap" style="margin:0;">당첨번호 ${fmt(D[D.length - 1].no)}회까지 · 분석 갱신 ${esc(A.updated_at.slice(0, 16).replace('T', ' '))}<br>내 복권·설정은 이 폰에만 저장됩니다.</p></section>`;
+  $('main').querySelectorAll('[data-m]').forEach(b => b.onclick = () => { Pref.set({method: b.dataset.m}); renderSettings(); toast('추천 방식을 바꿨습니다'); });
+  $('main').querySelectorAll('[data-n]').forEach(b => b.onclick = () => { Pref.set({lines: +b.dataset.n}); renderSettings(); });
+  $('newRec').onclick = () => { LS.set('var' + sc.no, v + 1); toast('새 추천을 받았습니다'); show('home'); };
+  $('resetRec') && ($('resetRec').onclick = () => { LS.set('var' + sc.no, 0); renderSettings(); });
+}
+document.addEventListener('click', e => { const g = e.target.closest('[data-goto]'); if(g){ e.preventDefault(); show(g.dataset.goto); } });
+const VIEWS = {home: renderHome, tickets: renderTickets, analysis: renderAnalysis, settings: renderSettings};
 function show(v){
   view = VIEWS[v] ? v : 'home'; LS.set('view', view);
   document.querySelectorAll('#tabbar button').forEach(b => b.classList.toggle('on', b.dataset.v === view));
@@ -359,7 +429,7 @@ function show(v){
   window.scrollTo(0, 0);
 }
 $('tabbar').onclick = (e) => { const b = e.target.closest('[data-v]'); if(b) show(b.dataset.v); };
-const ORDER = ['home', 'tickets', 'analysis'];
+const ORDER = ['home', 'tickets', 'analysis', 'settings'];
 // 휴대폰 뒤로: 위에 열린 것부터 닫고(아래 창 → 다른 탭이면 홈), 홈이면 '한 번 더 누르면 종료' (소은이 앱 방식)
 let exitArmed = 0;
 const guard = () => { if(!history.state?.guard) history.pushState({guard: 1}, ''); };

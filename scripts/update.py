@@ -239,6 +239,90 @@ def elimination(draws):
     return out
 
 
+# ---------- 추천 방식(설정에서 고름): 회차마다 10줄, 같은 줄·역대 1등 조합 없음, 줄끼리 많이 안 겹침
+# 각 방식은 h(그 회차 직전까지 기록)를 받아 '한 줄 뽑기' 함수를 돌려준다(후보 계산은 회차마다 한 번)
+def _from_pool(pool):
+    return lambda r: sorted(r.sample(pool, 6))
+
+
+def _top(h, k, low):
+    c = counts(h, k)
+    return sorted(ALL, key=lambda n: ((c[n] if low else -c[n]), n))[:20]
+
+
+def _gaps(h):
+    last = {}
+    for i, d in enumerate(h):
+        for x in d["n"]:
+            last[x] = i
+    return sorted(ALL, key=lambda n: (last.get(n, -1), n))[:20]
+
+
+def _any(r):
+    return sorted(r.sample(range(1, 46), 6))
+
+
+def _filtered(r):
+    while True:
+        s = sorted(r.sample(range(1, 46), 6))
+        if ok_filter(s):
+            return s
+
+
+# (키, 이름, 뽑기 만들기, 많이 고르는 모양 피하기, 줄끼리 최대 겹침)
+REC_METHODS = [
+    ("basic", "기본: 많이 고르는 모양 피하기", lambda h: _any, True, 2),
+    ("random", "완전 무작위 (자동과 같음)", lambda h: _any, False, 6),
+    ("hot", "핫: 최근 30회 많이 나온 20개 중", lambda h: _from_pool(_top(h, 30, False)), False, 3),
+    ("cold", "콜드: 최근 30회 적게 나온 20개 중", lambda h: _from_pool(_top(h, 30, True)), False, 3),
+    ("overdue", "미출현: 오래 안 나온 20개 중", lambda h: _from_pool(_gaps(h)), False, 3),
+    ("filter", "패턴 맞춤: 홀짝·고저·합·연속·AC", lambda h: _filtered, False, 2),
+]
+
+
+def rec_lines(h, method, seed, n=10, past=None):
+    _, _, mk, avoid, ov = next(m for m in REC_METHODS if m[0] == method)
+    pick, r = mk(h), random.Random(seed)
+    past = past if past is not None else {tuple(d["n"]) for d in h}
+    out = []
+    for _ in range(5000):
+        if len(out) == n:
+            break
+        s = tuple(pick(r))
+        if s in past or s in out or (avoid and crowdy(s)) or any(len(set(s) & set(o)) > ov for o in out):
+            continue
+        out.append(s)
+    return [list(x) for x in out]
+
+
+def rec_backtest(draws):
+    """각 추천 방식을 지난 회차마다 그 직전 기록만으로 10줄 만들었다면: 등수별 횟수·쓴 돈·받은 돈 (당첨금 = 그 회차 실제 1~3등, 4등 5만·5등 5천)"""
+    out, recent = [], {}
+    for key, name, _, _, _ in REC_METHODS:
+        rank = collections.Counter()
+        spent = won = 0
+        rows = []
+        past = {tuple(d["n"]) for d in draws[:START]}
+        for i in range(START, len(draws)):
+            d = draws[i]
+            best = 0
+            for s in rec_lines(draws[:i], key, d["no"] * 7919, past=past):
+                m = len(set(s) & set(d["n"]))
+                rk = 1 if m == 6 else 2 if m == 5 and d["b"] in s else 3 if m == 5 else 4 if m == 4 else 5 if m == 3 else 0
+                rank[rk] += 1
+                spent += 1000
+                won += {1: d.get("p1") or 0, 2: d.get("p2") or 0, 3: d.get("p3") or 0, 4: 50000, 5: 5000}.get(rk, 0)
+                best = max(best, m)
+            rows.append([d["no"], best])
+            past.add(tuple(d["n"]))
+        lines = sum(rank.values())
+        out.append({"key": key, "name": name, "draws": len(draws) - START, "lines": lines, "rank": [rank[k] for k in range(1, 6)],
+                    "ge3": round(sum(rank[k] for k in range(1, 6)) / lines * 100, 3), "spent": spent, "won": won,
+                    "roi": round(won / spent * 100, 1)})
+        recent[key] = rows[-30:]
+    return {"from": START + 1, "methods": out, "recent": recent}
+
+
 def analyze(draws):
     N = len(draws)
     cnt = counts(draws)
@@ -273,6 +357,8 @@ def analyze(draws):
         "backtest": backtest(draws),
         "crowd": crowd(draws),
         "elim": elimination(draws),
+        "rec_bt": rec_backtest(draws),
+        "rec_next": {m[0]: rec_lines(draws, m[0], (draws[-1]["no"] + 1) * 7919) for m in REC_METHODS},
         "how1": {"draws": sum(1 for d in draws if d.get("wc")), "from": next((d["no"] for d in draws if d.get("wc")), None),
                  "auto": sum(d["wc"][0] for d in draws if d.get("wc")), "semi": sum(d["wc"][1] for d in draws if d.get("wc")),
                  "manual": sum(d["wc"][2] for d in draws if d.get("wc"))},
