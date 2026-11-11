@@ -11,7 +11,38 @@ const LS = {
 };
 const color = (n) => n <= 10 ? 'c1' : n <= 20 ? 'c2' : n <= 30 ? 'c3' : n <= 40 ? 'c4' : 'c5';
 const ball = (n, cls = '') => `<span class="ball ${color(n)} ${cls}">${n}</span>`;
-function toast(t){ const d = document.createElement('div'); d.className = 'toast'; d.textContent = t; document.body.appendChild(d); setTimeout(() => d.remove(), 2600); }
+function toast(t){ document.querySelectorAll('.toast').forEach(x => x.remove()); const d = document.createElement('div'); d.className = 'toast'; d.textContent = t; document.body.appendChild(d); setTimeout(() => d.remove(), 2600); }
+// 긴 설명은 접어 둔다(기본 닫힘) — 제목만 보이고 누르면 펼침
+const fold = (title, html) => `<details class="fold"><summary>${title}</summary><div class="fold-b">${html}</div></details>`;
+
+// ---------------------------------------------------------------- 아래 창·확인창 (소은이 앱 방식: 폰 기본 confirm 대신, 뒤로가기로 닫힘)
+function openSheet(html, onMount){
+  closeSheet(true);
+  const w = document.createElement('div'); w.className = 'sheet-wrap'; w.id = 'sheet';
+  w.innerHTML = `<div class="sheet-bg"></div><div class="sheet"><div class="grab"></div>${html}</div>`;
+  document.body.appendChild(w); document.documentElement.classList.add('shopen');
+  requestAnimationFrame(() => w.classList.add('on'));
+  w.querySelector('.sheet-bg').onclick = () => closeSheet();
+  // 손잡이를 아래로 끌면 닫힘
+  const sh = w.querySelector('.sheet'), g = w.querySelector('.grab'); let y0 = null;
+  g.addEventListener('pointerdown', e => { y0 = e.clientY; g.setPointerCapture(e.pointerId); });
+  g.addEventListener('pointermove', e => { if(y0 != null) sh.style.transform = `translateY(${Math.max(0, e.clientY - y0)}px)`; });
+  g.addEventListener('pointerup', e => { const d = e.clientY - (y0 ?? e.clientY); y0 = null; sh.style.transform = ''; if(d > 80) closeSheet(); });
+  onMount && onMount(w);
+  return w;
+}
+function closeSheet(now){
+  const w = $('sheet'); if(!w) return false;
+  document.documentElement.classList.remove('shopen');
+  if(now){ w.remove(); return true; }
+  w.classList.remove('on'); setTimeout(() => w.remove(), 220); return true;
+}
+function ask(msg, {ok = '확인', danger = false} = {}){
+  return new Promise(res => {
+    openSheet(`<p class="ask-msg">${esc(msg)}</p><div class="row ask-row"><button class="btn ghost" data-a="0" type="button">취소</button><button class="btn ${danger ? 'danger' : ''}" data-a="1" type="button">${esc(ok)}</button></div>`,
+      w => w.querySelectorAll('[data-a]').forEach(b => b.onclick = () => { closeSheet(); res(b.dataset.a === '1'); }));
+  });
+}
 
 let D = [], A = null, view = LS.get('view', 'home'), anaSeg = LS.get('anaSeg', 'rank');
 
@@ -149,7 +180,7 @@ function renderHome(){
   $('main').innerHTML = `
     <section class="card hero">
       ${sc.pending ? `<div class="row" style="margin:0 0 6px;">${sc.live ? '<span class="live">LIVE 추첨 중</span>' : '<span class="pill wait">결과 집계 중</span>'}</div>
-        <div class="k">${sc.no}회 추첨이 끝났습니다. 앱 반영 전이면 방송·공식 결과로 먼저 확인하세요</div>`
+        <div class="k">${sc.no}회 추첨 끝 · 결과가 곧 들어옵니다</div>`
       : `<div class="k">${sc.no}회 추첨까지 · ${sc.t.getMonth() + 1}월 ${sc.t.getDate()}일(토) 20:35</div><div class="big" id="cd">${countdown(sc.t)}</div>`}
       <div class="row">
         <a class="btn gold sm" href="${LINKS.onair}" target="_blank" rel="noopener">📺 MBC 생방송</a>
@@ -165,9 +196,9 @@ function renderHome(){
     </section>
     <section class="card">
       <h2>${sc.no}회 추천 번호</h2>
-      <p class="cap">무작위 + 많이 고르는 모양 피하기 + 역대 1등 조합 제외. 분석법 중 무작위보다 나은 게 없어서(📊 분석), 당첨되면 나눠 가질 사람이 적은 쪽으로 고릅니다.</p>
+      ${fold('어떻게 고른 번호인가요?', '무작위로 뽑되, 사람들이 많이 고르는 모양(생일 번호만, 연속 여러 쌍, 등차, 한쪽 몰림)과 역대 1등 조합을 뺐습니다. 어떤 번호든 1등 확률은 1/8,145,060로 같아서, 당첨됐을 때 나눠 가질 사람이 적은 쪽을 고르는 것만 의미가 있습니다. 근거는 분석 탭.')}
       <div class="lines">${rec.lines.map((s, i) => `<div class="ln"><span class="lab">${'ABCDE'[i]}</span><span class="balls">${s.map(n => ball(n, 'sm')).join('')}</span></div>`).join('')}</div>
-      <label class="opt"><input type="checkbox" id="oFilter" ${recO.filter ? 'checked' : ''}><span>시중 필터도 적용 (홀짝·고저 2~4, 합 100~175, 연속 1쌍 이하, AC 7↑)<small>역검증상 효과 없음. 원하면 켜세요</small></span></label>
+      <label class="opt"><input type="checkbox" id="oFilter" ${recO.filter ? 'checked' : ''}><span>시중 필터도 적용<small>홀짝·고저 2~4, 합 100~175, 연속 1쌍 이하, AC 7↑ · 확률엔 효과 없음</small></span></label>
       <div class="row" style="margin-top:12px;"><button class="btn" id="reGen" type="button">🎲 다시 뽑기</button><button class="btn ghost" id="keep" type="button">내 복권에 담기</button></div>
     </section>`;
   $('reGen').onclick = () => { const o = {crowd: true, filter: $('oFilter').checked}; LS.set('recOpts', o); LS.set('rec', {draw: sc.no, lines: Array.from({length: 5}, () => gen(o))}); renderHome(); };
@@ -202,38 +233,37 @@ function renderTickets(){
     </section>`;
   }).join('');
   $('main').innerHTML = `<section class="card hero">
-      <div class="k">복권 사진의 QR을 찍으면 번호가 저장되고, 추첨 뒤 자동으로 대조됩니다</div>
+      <div class="k">QR만 찍으면 저장 · 추첨 뒤 자동 대조</div>
       <div class="row"><button class="btn gold" id="scan" type="button">📷 QR 스캔</button><button class="btn ghost" id="manual" type="button">✍️ 직접 입력</button></div>
       ${list.length ? `<div class="k" style="margin-top:12px;">지금까지 ${fmt(spent / 1000)}게임 · 당첨 ${wins}번 · ${won(got) === '-' ? '0원' : won(got)}</div>` : ''}
     </section>
-    <div id="manualBox"></div>
     ${blocks || '<div class="empty">아직 저장한 복권이 없습니다.</div>'}`;
   $('scan').onclick = () => $('scanFile').click();
   $('manual').onclick = () => renderManual();
-  $('main').querySelectorAll('[data-del]').forEach(b => b.onclick = () => { if(confirm('이 복권을 지울까요?')){ Tickets.remove(b.dataset.del); renderTickets(); } });
+  $('main').querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { if(await ask('이 복권을 지울까요?', {ok: '지우기', danger: true})){ Tickets.remove(b.dataset.del); renderTickets(); toast('지웠습니다'); } });
 }
 function renderManual(){
   const sc = schedule(), sel = new Set(), lines = [];
   let drawNo = sc.no;
-  const box = $('manualBox');
-  const paint = () => {
-    box.innerHTML = `<section class="card"><h2>직접 입력</h2>
-      <div class="row" style="margin:6px 0 10px;"><span class="cap" style="margin:0;">회차</span><input id="mDraw" type="number" inputmode="numeric" value="${drawNo}" style="width:90px; font:inherit; padding:6px 8px; border-radius:10px; border:1.5px solid var(--line); background:var(--surface); color:var(--text);"><span class="cap" style="margin:0;">번호 6개 (${sel.size}/6)</span></div>
+  openSheet('<div id="mBody"></div>', () => paint());
+  function paint(){
+    const box = $('mBody'); if(!box) return;
+    box.innerHTML = `<h2>직접 입력</h2>
+      <div class="row" style="margin:8px 0 12px;"><label class="cap" for="mDraw" style="margin:0;">회차</label><input id="mDraw" type="number" inputmode="numeric" value="${drawNo}" style="width:96px;"><span class="cap" style="margin:0 0 0 auto;">${lines.length + 1}번째 게임 · ${sel.size}/6</span></div>
       <div class="pick">${Array.from({length: 45}, (_, i) => `<button type="button" data-n="${i + 1}" class="${sel.has(i + 1) ? 'on' : ''}">${i + 1}</button>`).join('')}</div>
-      ${lines.length ? `<div class="lines" style="margin-top:10px;">${lines.map((s, i) => `<div class="ln"><span class="lab">${'ABCDE'[i]}</span><span class="balls">${s.map(n => ball(n, 'sm')).join('')}</span></div>`).join('')}</div>` : ''}
-      <div class="row" style="margin-top:12px;"><button class="btn" id="mSave" type="button" ${lines.length ? '' : 'disabled'}>저장 (${lines.length}게임)</button><button class="btn ghost" id="mCancel" type="button">닫기</button></div></section>`;
+      ${lines.length ? `<div class="lines" style="margin-top:12px;">${lines.map((s, i) => `<div class="ln"><span class="lab">${'ABCDE'[i]}</span><span class="balls">${s.map(n => ball(n, 'sm')).join('')}</span><button class="x" data-rm="${i}" type="button" aria-label="이 줄 빼기">✕</button></div>`).join('')}</div>` : ''}
+      <div class="row" style="margin-top:14px;"><button class="btn ghost" id="mCancel" type="button">닫기</button><button class="btn" id="mSave" type="button" ${lines.length ? '' : 'disabled'} style="margin-left:auto;">저장 ${lines.length ? lines.length + '게임' : ''}</button></div>`;
     $('mDraw').oninput = (e) => { drawNo = +e.target.value; };
     box.querySelector('.pick').onclick = (e) => {
       const b = e.target.closest('[data-n]'); if(!b) return;
       const n = +b.dataset.n; sel.has(n) ? sel.delete(n) : sel.add(n);
-      if(sel.size === 6){ lines.push([...sel].sort((a, b) => a - b)); sel.clear(); if(lines.length >= 5) toast('한 장 최대 5게임'); }
+      if(sel.size === 6){ if(lines.length < 5) lines.push([...sel].sort((a, b) => a - b)); else toast('한 장은 5게임까지'); sel.clear(); }
       paint();
     };
-    $('mSave').onclick = () => { const no = drawNo; if(!no) return; Tickets.add({draw: no, lines: lines.slice(0, 5), kinds: Array(lines.length).fill('직접'), src: '직접'}); renderTickets(); };
-    $('mCancel').onclick = () => { box.innerHTML = ''; };
-  };
-  paint();
-  box.scrollIntoView({behavior: 'smooth'});
+    box.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { lines.splice(+b.dataset.rm, 1); paint(); });
+    $('mSave').onclick = () => { if(!drawNo || !lines.length) return; Tickets.add({draw: drawNo, lines, kinds: Array(lines.length).fill('직접'), src: '직접'}); closeSheet(); toast(`${drawNo}회 ${lines.length}게임 저장`); renderTickets(); };
+    $('mCancel').onclick = () => closeSheet();
+  }
 }
 
 // ---------------------------------------------------------------- 분석
@@ -248,13 +278,17 @@ function anaRank(){
   const B = A.backtest, R = [...B.methods].sort((a, b) => b.ge3 - a.ge3 || b.mean - a.mean);
   const lo = B.theory_ge3 - 1.96 * B.ge3_se, hi = B.theory_ge3 + 1.96 * B.ge3_se;
   const beat = R.filter(m => m.ge3 > hi);
+  const E = A.elim || [];
   return `<div class="note"><b>${beat.length ? '무작위보다 확실히 나은 방법이 있습니다' : '1위 방법도 무작위와 구별되지 않습니다'}</b>
-      승률 = 5등 이상(3개↑) 맞은 비율. 무작위 이론값 ${fmt(B.theory_ge3, 2)}%, 운으로 나오는 범위 ${fmt(lo, 2)}~${fmt(hi, 2)}%. 모든 방법이 이 안에 있습니다. "그때그때 승률 1위 방법을 따라가기"도 표본외로 시험했지만 같은 범위입니다.</div>
-    <section class="card"><h2>분석법 승률 순위</h2><p class="cap">${fmt(B.from)}회부터 매 회, 그 직전 기록만 보고 골랐다면 (${fmt(R[0].draws)}회)</p>
+      ${fold('자세히', `승률 = 5등 이상(3개↑) 맞은 비율. 무작위 이론값 ${fmt(B.theory_ge3, 2)}%, 운으로 나오는 범위 ${fmt(lo, 2)}~${fmt(hi, 2)}%. 모든 방법이 이 안에 있습니다. '그때그때 승률 1위 방법 따라가기'도 표본외로 시험했지만 같은 범위입니다.`)}</div>
+    ${E.length ? `<section class="card"><h2>안 나올 것 같은 조합을 지우면?</h2><p class="cap">지운 조합 비율 = 실제 당첨번호가 그 안에 있던 비율 → 남은 조합의 확률이 오르지 않음</p>
+      <table><thead><tr><th>지우는 패턴</th><th class="n">지운 조합</th><th class="n">실제 당첨</th></tr></thead>
+      <tbody>${E.map(e => `<tr><td>${esc(e.name)}</td><td class="n">${fmt(e.combo_pct, 2)}%</td><td class="n"><b>${fmt(e.win_pct, 2)}%</b></td></tr>`).join('')}</tbody></table>
+      ${fold('왜 그런가요?', `1·3·5·7·9·11 같은 줄은 '그 모양이 드문' 게 아니라 그 모양에 속한 조합 수가 적을 뿐입니다. 한 줄 한 줄의 확률은 모두 1/8,145,060로 같습니다. 그래서 어떤 모양을 지우면 그만큼 당첨번호도 그 안에 있었고(위 두 칸이 같음), 내가 산 한 줄의 확률은 그대로입니다. 지워서 얻는 건 확률이 아니라, 사람들이 많이 고르는 모양(연속·등차·생일)을 피해 당첨금을 덜 나누는 것뿐입니다.`)}</section>` : ''}
+    <section class="card"><h2>분석법 승률 순위</h2><p class="cap">${fmt(B.from)}회부터 매 회, 그 직전 기록만 보고 골랐다면 · ${fmt(R[0].draws)}회</p>
       <table><thead><tr><th>방법</th><th class="n">승률</th><th class="n">4등↑</th><th class="n">평균 맞음</th></tr></thead>
       <tbody>${R.map((m, i) => `<tr class="${m.meta ? 'meta' : ''}"><td><span class="rk">${i + 1}</span>${esc(m.name)}${m.meta && m.picked ? `<br><small class="cap">주로 고른 방법: ${esc(m.picked[0][0])}</small>` : ''}</td><td class="n"><b>${fmt(m.ge3, 2)}%</b></td><td class="n">${fmt(m.ge4, 3)}%</td><td class="n">${fmt(m.mean, 3)}</td></tr>`).join('')}</tbody></table>
-      <p class="cap" style="margin-top:8px;">이론값: 승률 ${fmt(B.theory_ge3, 2)}% · 4등↑ ${fmt(B.theory_ge4, 3)}% · 평균 ${B.theory_mean}개. 순위는 매주 바뀝니다. ${R.length}가지를 비교했으니 1위가 이론값보다 조금 높은 건 우연으로도 정상입니다.</p></section>
-    <section class="card"><h2>그래서 추천은</h2><p class="cap" style="margin:0; color:var(--text); font-size:13.5px;">확률을 올리는 분석법은 없으므로, 추천 번호는 <b>무작위</b>로 고르고 <b>많이 고르는 모양(생일 번호만, 연속 여러 쌍, 등차, 한쪽 몰림)</b>과 역대 1등 조합을 뺍니다. 당첨 확률은 어떤 번호든 1/8,145,060로 같고, 당첨됐을 때 나눠 가질 사람이 적은 쪽을 고르는 것만 의미가 있습니다.</p></section>`;
+      ${fold('표 읽는 법', `이론값: 승률 ${fmt(B.theory_ge3, 2)}% · 4등↑ ${fmt(B.theory_ge4, 3)}% · 평균 ${B.theory_mean}개. 순위는 매주 바뀝니다. ${R.length}가지를 비교했으니 1위가 이론값보다 조금 높은 건 우연으로도 정상입니다. 노란 줄은 '그때까지 1위였던 방법을 다음 회차에 쓰기' 전략입니다.`)}</section>`;
 }
 function anaNums(){
   const sort = LS.get('nSort', 'freq');
@@ -264,14 +298,14 @@ function anaNums(){
   const mx = {freq: Math.max(...A.freq), r50: Math.max(...A.recent50), r10: Math.max(...A.recent10, 1), gap: Math.max(...A.gap, 1), no: Math.max(...A.freq)}[sort];
   const v = (x) => ({no: x.f, freq: x.f, r50: x.r50, r10: x.r10, gap: x.g}[sort]);
   const unit = sort === 'gap' ? '회째' : '번';
-  return `<div class="note"><b>번호별 출현은 무작위 범위 안입니다</b>${fmt(A.n_draws)}회 동안 번호마다 평균 ${fmt(A.freq_expect, 1)}번 (최소 ${Math.min(...A.freq)} · 최대 ${Math.max(...A.freq)}). 카이제곱 ${fmt(A.chi2, 1)} &lt; 무작위 한계 ${fmt(A.chi2_crit, 1)}.</div>
+  return `<div class="note"><b>번호별 출현은 무작위 범위 안입니다</b>${fold('자세히', `${fmt(A.n_draws)}회 동안 번호마다 평균 ${fmt(A.freq_expect, 1)}번 (최소 ${Math.min(...A.freq)} · 최대 ${Math.max(...A.freq)}). 카이제곱 ${fmt(A.chi2, 1)} &lt; 무작위 한계 ${fmt(A.chi2_crit, 1)}. 지난 결과일 뿐 다음 회차 확률과는 관계없습니다.`)}</div>
     <section class="card"><div class="row" style="justify-content:space-between; margin-bottom:10px;"><h2>번호별</h2>
       <select id="nSort" style="font:inherit; padding:6px 10px; border-radius:10px; border:1.5px solid var(--line); background:var(--surface); color:var(--text);"><option value="freq">전체 많이 나온 순</option><option value="r50">최근 50회 많이</option><option value="r10">최근 10회 많이</option><option value="gap">오래 안 나온 순</option><option value="no">번호 순</option></select></div>
       <div class="g45">${N.map(x => `<div class="c45">${ball(x.n, 'sm')}<span class="v">${v(x)}${unit}</span><span class="b"><i style="width:${(v(x) / mx * 100).toFixed(0)}%"></i></span></div>`).join('')}</div>
-      <p class="cap" style="margin-top:10px;">지난 결과일 뿐 다음 회차 확률과는 관계없습니다(🏆 분석법 승률).</p></section>
+</section>
     <section class="card"><h2>함께 많이 나온 쌍</h2>
       <table><tbody>${A.pairs_top.slice(0, 8).map(([p, c]) => `<tr><td><span class="balls">${p.map(n => ball(n, 'sm')).join('')}</span></td><td class="n">${c}회</td></tr>`).join('')}</tbody></table>
-      <p class="cap" style="margin-top:8px;">쌍 하나의 무작위 기대 ${fmt(A.pair_expect, 1)}회. 쌍이 990개라 이 정도 상위값은 우연으로도 나옵니다.</p></section>`;
+      ${fold('자세히', `쌍 하나의 무작위 기대 ${fmt(A.pair_expect, 1)}회. 쌍이 990개라 이 정도 상위값은 우연으로도 나옵니다.`)}</section>`;
 }
 const PAT = [['odd', '홀수 개수'], ['low', '낮은 번호(1~22) 개수'], ['sum', '6개 합'], ['consec', '연속 번호 쌍'], ['ac', 'AC값'], ['same_end', '같은 끝수 최대'], ['prime', '소수 개수']];
 function anaPattern(){
@@ -281,12 +315,12 @@ function anaPattern(){
     return `<section class="card"><h2>${t}</h2>${keys.map(x => `<div class="pb"><span>${esc(x)}</span><span class="t"><i style="width:${((p.real[x] || 0) / mx * 100).toFixed(1)}%"></i><s style="left:${((p.random[x] || 0) / mx * 100).toFixed(1)}%"></s></span><b>${fmt(p.real[x] || 0, 1)}%</b></div>`).join('')}</section>`;
   }).join('');
   const cr = A.crowd.groups.low31;
-  return `<div class="note"><b>모든 패턴이 무작위와 같은 비율입니다</b>막대 = 실제 ${fmt(A.n_draws)}회, 금색 선 = 무작위 20만 번. '잘 나오는 패턴'은 원래 조합 수가 많을 뿐, 그 안의 한 줄 확률은 다른 줄과 같습니다.</div>
+  return `<div class="note"><b>모든 패턴이 무작위와 같은 비율입니다</b>${fold('그림 읽는 법', `막대 = 실제 ${fmt(A.n_draws)}회, 금색 선 = 무작위로 20만 번 뽑았을 때. '잘 나오는 패턴'은 원래 조합 수가 많을 뿐, 그 안의 한 줄 확률은 다른 줄과 같습니다.`)}</div>
     ${blocks}
     <section class="card"><h2>이월수 (직전 회차 번호가 다시 나온 개수)</h2><table><tbody>${Object.entries(A.carry).map(([k, v]) => `<tr><td>${k}개</td><td class="n">${fmt(v, 1)}%</td></tr>`).join('')}</tbody></table></section>
-    <section class="card"><h2>1등을 나눠 가진 정도</h2><p class="cap">당첨번호 중 31 이하 개수별 · 1등 인원 ÷ 무작위 기대(판매 장수 ÷ 8,145,060)</p>
+    <section class="card"><h2>1등을 나눠 가진 정도</h2><p class="cap">당첨번호 중 31 이하 개수별</p>
       <table><tbody>${Object.entries(cr).map(([k, v]) => `<tr><td>${k}개</td><td class="n">${fmt(v.draws)}회</td><td class="n">×${(v.winners / v.expect).toFixed(2)}</td></tr>`).join('')}</tbody></table>
-      <p class="cap" style="margin-top:8px;">차이가 작고 회차별 편차가 커서 아직 뚜렷하지 않습니다. 금액 쪽 이야기이고 확률과는 무관합니다.</p></section>`;
+      ${fold('자세히', '1등 인원 ÷ 무작위 기대(판매 장수 ÷ 8,145,060). 차이가 작고 회차별 편차가 커서 아직 뚜렷하지 않습니다. 금액 쪽 이야기이고 확률과는 무관합니다.')}</section>`;
 }
 
 // ---------------------------------------------------------------- 공통
@@ -299,6 +333,32 @@ function show(v){
   window.scrollTo(0, 0);
 }
 $('tabbar').onclick = (e) => { const b = e.target.closest('[data-v]'); if(b) show(b.dataset.v); };
+const ORDER = ['home', 'tickets', 'analysis'];
+// 휴대폰 뒤로: 위에 열린 것부터 닫고(아래 창 → 다른 탭이면 홈), 홈이면 '한 번 더 누르면 종료' (소은이 앱 방식)
+let exitArmed = 0;
+const guard = () => { if(!history.state?.guard) history.pushState({guard: 1}, ''); };
+history.replaceState({root: 1}, ''); guard();
+document.addEventListener('pointerdown', guard, {capture: true});
+window.addEventListener('popstate', () => {
+  if(closeSheet()){ guard(); return; }
+  if(view !== 'home'){ show('home'); guard(); return; }
+  if(Date.now() - exitArmed < 2000) return;   // 두 번째: 종료
+  exitArmed = Date.now(); toast('한 번 더 누르면 종료돼요'); setTimeout(guard, 0);
+});
+// 화면을 좌우로 밀면 옆 탭
+let sx = null, sy = null;
+document.addEventListener('touchstart', e => { const t = e.target; if($('sheet') || t.closest('input, select, .pick, .g45, table, [data-noswipe]')){ sx = null; return; } sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, {passive: true});
+document.addEventListener('touchend', e => {
+  if(sx == null) return;
+  const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy; sx = null;
+  if(Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.6) return;
+  const i = ORDER.indexOf(view) + (dx < 0 ? 1 : -1);
+  if(ORDER[i]){ show(ORDER[i]); $('main').classList.remove('slide-l', 'slide-r'); void $('main').offsetWidth; $('main').classList.add(dx < 0 ? 'slide-l' : 'slide-r'); }
+}, {passive: true});
+document.addEventListener('contextmenu', e => { if(!e.target.closest('input, textarea')) e.preventDefault(); });
+const topBtn = document.createElement('button'); topBtn.className = 'to-top'; topBtn.type = 'button'; topBtn.setAttribute('aria-label', '맨 위로'); topBtn.textContent = '↑'; topBtn.hidden = true;
+topBtn.onclick = () => window.scrollTo({top: 0, behavior: 'smooth'}); document.body.appendChild(topBtn);
+window.addEventListener('scroll', () => { topBtn.hidden = window.scrollY < 500; }, {passive: true});
 async function load(){
   try{
     const [d, a] = await Promise.all(['data/draws.json', 'data/analysis.json'].map(u => fetch(u, {cache: 'no-cache'}).then(r => { if(!r.ok) throw new Error(u); return r.json(); })));

@@ -212,6 +212,30 @@ def crowd(draws):
     return {"draws": len(rows), "groups": out}
 
 
+ELIM_RULES = [
+    ("연속 번호 2쌍 이상", lambda f, s: f["consec"] >= 2),
+    ("홀수만 · 짝수만", lambda f, s: f["odd"] in (0, 6)),
+    ("합 100 미만 · 175 초과", lambda f, s: not 100 <= f["sum"] <= 175),
+    ("등차 (1·3·5·7·9·11 같은)", lambda f, s: all(s[k] - s[k - 1] == s[1] - s[0] for k in range(1, 6))),
+    ("AC 6 이하 (간격이 단조로움)", lambda f, s: f["ac"] <= 6),
+    ("시중 필터 전체", lambda f, s: not ok_filter(s)),
+]
+
+
+def elimination(draws):
+    """패턴 소거: 그 패턴 조합을 지우면 전체 조합의 몇 %가 빠지나 vs 실제 당첨번호가 그 안에 있던 비율 (같으면 소거 효과 없음)"""
+    tot = [0] * len(ELIM_RULES)
+    for s in itertools.combinations(range(1, 46), 6):
+        f = feats(s)
+        for i, (_, r) in enumerate(ELIM_RULES):
+            tot[i] += r(f, s)
+    out = []
+    for i, (name, r) in enumerate(ELIM_RULES):
+        w = sum(1 for d in draws if r(feats(d["n"]), d["n"]))
+        out.append({"name": name, "combos": tot[i], "combo_pct": round(tot[i] / 8145060 * 100, 2), "wins": w, "win_pct": round(w / len(draws) * 100, 2)})
+    return out
+
+
 def analyze(draws):
     N = len(draws)
     cnt = counts(draws)
@@ -245,6 +269,7 @@ def analyze(draws):
         "filter_share": round(filt_share, 1),
         "backtest": backtest(draws),
         "crowd": crowd(draws),
+        "elim": elimination(draws),
     }
 
 
