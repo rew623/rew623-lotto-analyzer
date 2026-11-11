@@ -320,9 +320,22 @@ def mine_crowd(draws):
     return {("yes" if k else "no"): {"draws": v[2], "ratio": round(v[0] / v[1], 3), "ci": round(1.96 * math.sqrt(v[0]) / v[1], 3)} for k, v in g.items()}
 
 
+WEEKS = 16   # 매주 성적 탭에 보일 지난 회차 수
+
+
+def save_rec_log(draws, rec_next):
+    """다음 회차 추천을 추첨 전에 얼려 둔다(data/rec_log.json) — 한 번 쓰면 안 고침 → 앱 '매주 성적'의 실제 기록"""
+    p = DATA / "rec_log.json"
+    log = json.load(open(p, encoding="utf-8")) if p.exists() else {}
+    no = str(draws[-1]["no"] + 1)
+    if no not in log:
+        log[no] = {"at": dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).isoformat(timespec="minutes"), "m": rec_next}
+        json.dump(log, open(p, "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
+
+
 def rec_backtest(draws):
     """각 추천 방식을 지난 회차마다 그 직전 기록만으로 10줄 만들었다면: 등수별 횟수·쓴 돈·받은 돈 (당첨금 = 그 회차 실제 1~3등, 4등 5만·5등 5천)"""
-    out, recent = [], {}
+    out, recent, weeks = [], {}, {}
     for key, name, _, _, _ in REC_METHODS:
         rank = collections.Counter()
         spent = won = 0
@@ -331,7 +344,10 @@ def rec_backtest(draws):
         for i in range(START, len(draws)):
             d = draws[i]
             best = 0
-            for s in rec_lines(draws[:i], key, d["no"] * 7919, past=past):
+            L = rec_lines(draws[:i], key, d["no"] * 7919, past=past)
+            if i >= len(draws) - WEEKS:   # 매주 성적 탭: 최근 몇 주는 줄까지 남김(앱이 맞은 번호 표시)
+                weeks.setdefault(d["no"], {})[key] = L
+            for s in L:
                 m = len(set(s) & set(d["n"]))
                 rk = 1 if m == 6 else 2 if m == 5 and d["b"] in s else 3 if m == 5 else 4 if m == 4 else 5 if m == 3 else 0
                 rank[rk] += 1
@@ -348,7 +364,7 @@ def rec_backtest(draws):
                     "ge3": round(sum(rank[k] for k in range(1, 6)) / lines * 100, 3), "spent": spent, "won": won,
                     "roi": round(won / spent * 100, 1), "hits": hits})
         recent[key] = rows[-30:]
-    return {"from": START + 1, "methods": out, "recent": recent}
+    return {"from": START + 1, "methods": out, "recent": recent, "weeks": weeks}
 
 
 def analyze(draws):
@@ -402,7 +418,9 @@ def main():
         print("새 회차 없음")
         return
     json.dump(draws, open(DATA / "draws.json", "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
-    json.dump(analyze(draws), open(DATA / "analysis.json", "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
+    A = analyze(draws)
+    json.dump(A, open(DATA / "analysis.json", "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
+    save_rec_log(draws, A["rec_next"])
     print(f"{len(draws)}회 저장 (마지막 {draws[-1]['no']}회 {draws[-1]['date']})")
 
 

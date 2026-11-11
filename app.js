@@ -44,7 +44,7 @@ function ask(msg, {ok = '확인', danger = false} = {}){
   });
 }
 
-let D = [], A = null, view = LS.get('view', 'home'), anaSeg = LS.get('anaSeg', 'rank');
+let D = [], A = null, view = LS.get('view', 'home'), anaSeg = LS.get('anaSeg', 'week');
 
 // ---------------------------------------------------------------- 추첨 일정 (매주 토 20:35 KST, 생방송 약 20:35~20:45)
 const KST = 9 * 3600e3;
@@ -67,7 +67,7 @@ function countdown(t){
 }
 // 동행복권은 2025년 홈페이지를 바꿔 옛 주소(gameResult.do·TotalGame.jsp)가 오류·빈 화면 → 새 주소만 쓴다(2026-11)
 // 구매는 로그인·예치금이 필요해 깊은 주소가 자주 막힘 → 첫 화면으로 보내고 '사는 법'을 접어 둔다
-const VER = '1.6.1';
+const VER = '1.7.0';
 const LINKS = {
   buy: 'https://www.dhlottery.co.kr/',
   onair: 'https://onair.imbc.com/',
@@ -518,8 +518,8 @@ function renderManual(){
 
 // ---------------------------------------------------------------- 분석
 function renderAnalysis(){
-  const segs = [['rank', '🏆 성적표'], ['nums', '🔢 번호 통계'], ['pattern', '🧩 패턴']];
-  const body = anaSeg === 'nums' ? anaNums() : anaSeg === 'pattern' ? anaPattern() : anaRank();
+  const segs = [['week', '📅 매주'], ['rank', '🏆 성적표'], ['nums', '🔢 번호'], ['pattern', '🧩 패턴']];
+  const body = anaSeg === 'nums' ? anaNums() : anaSeg === 'pattern' ? anaPattern() : anaSeg === 'week' ? anaWeek() : anaRank();
   $('main').innerHTML = `<div class="seg" id="seg">${segs.map(([k, t]) => `<button type="button" data-s="${k}" class="${anaSeg === k ? 'on' : ''}">${t}</button>`).join('')}</div>${body}`;
   $('seg').onclick = (e) => { const b = e.target.closest('[data-s]'); if(b){ anaSeg = b.dataset.s; LS.set('anaSeg', anaSeg); renderAnalysis(); } };
   const ss = $('nSort'); if(ss){ ss.value = LS.get('nSort', 'freq'); ss.onchange = () => { LS.set('nSort', ss.value); renderAnalysis(); }; }
@@ -559,6 +559,38 @@ function recReport(){
       <h3>지금 방식(${esc(nm(P.method))}) 최근 30회</h3>
       <div class="recent">${recent.slice().reverse().map(([no, m]) => `<span class="rc m${Math.min(m, 5)}" title="${no}회 가장 많이 맞은 줄 ${m}개"><b>${m}</b><small>${no}</small>${rk(m) ? `<i>${rk(m)}</i>` : ''}</span>`).join('')}</div>
       <p class="cap" style="margin:8px 0 0;">숫자 = 그 회차 10줄 중 가장 많이 맞은 개수</p></section>`;
+}
+// 매주 성적: 지난 회차마다 각 방식이 추천했을 10줄(같은 규칙·같은 씨앗 = 그 주 앱에 떴을 번호)을 실제 결과와 맞춰 봄.
+// rec_log.json(추첨 전에 얼려 둔 추천)이 있는 회차는 '기록', 없으면 '재현'
+let RLOG = {};
+function anaWeek(){
+  const W = A.rec_bt?.weeks || {}, P = Pref.get();
+  const nm = (k) => METHODS.find(x => x[0] === k)?.[1] || k;
+  const keys = METHODS.map(m => m[0]);
+  const nos = [...new Set([...Object.keys(W), ...Object.keys(RLOG)].map(Number))].sort((a, b) => b - a);
+  const last = D[D.length - 1].no;
+  const weeks = nos.filter(no => no <= last).map(no => ({no, d: D[no - 1], rec: RLOG[no]?.m || W[no], real: !!RLOG[no]})).filter(w => w.rec && w.d);
+  const next = nos.find(no => no > last && RLOG[no]);
+  const tot = {};
+  weeks.forEach(w => keys.forEach(k => (w.rec[k] || []).forEach(l => { const j = judge(l, w.d), t = tot[k] = tot[k] || {r: [0, 0, 0, 0, 0, 0], won: 0, n: 0}; t.n++; t.r[j.rank]++; t.won += j.prize; })));
+  const order = keys.filter(k => tot[k]).sort((a, b) => tot[b].won - tot[a].won);
+  const nW = weeks.length;
+  const sum = `<section class="card"><h2>최근 ${nW}주 합계</h2><p class="cap">방식마다 매주 추천 10줄(1만 원)씩 샀다면 · 낸 돈 ${fmt(nW)}만 원</p>
+    <table><thead><tr><th>방식</th><th class="n">5등</th><th class="n">4등</th><th class="n">3등↑</th><th class="n">받은 돈</th></tr></thead><tbody>
+    ${order.map((k, i) => { const t = tot[k]; return `<tr class="${k === P.method ? 'meta' : ''}"><td><span class="rk">${i + 1}</span>${esc(nm(k))}</td><td class="n">${t.r[5]}</td><td class="n">${t.r[4]}</td><td class="n">${t.r[1] + t.r[2] + t.r[3]}</td><td class="n"><b>${fmt(t.won / 1e4, t.won % 1e4 ? 1 : 0)}만</b></td></tr>`; }).join('')}</tbody></table>
+    ${fold('이 표 보는 법', `몇 주로는 운이 전부입니다. 무작위로 사도 10줄이면 한 주에 5등 0.22번·4등 0.014번이 기대값이라, ${nW}주면 5등 ${fmt(nW * 0.224, 1)}번 안팎이 보통입니다. 순위가 매주 뒤바뀌는 게 정상이고, 한 방식이 계속 앞서는지 오래 보는 용도입니다. '재현' = 그 주 앱이 보여 줬을 번호를 같은 규칙으로 다시 만든 것, '기록' = 추첨 전에 저장해 둔 추천(${Object.keys(RLOG).length ? '이번 달부터 쌓는 중' : '다음 추첨부터 쌓임'}).`)}</section>`;
+  const nextCard = next ? `<section class="card"><div class="row" style="justify-content:space-between;"><h2>${next}회 추천 얼려 둠</h2><span class="pill wait">추첨 후 채점</span></div><p class="cap" style="margin:4px 0 0;">${esc(String(RLOG[next].at || '').slice(0, 16).replace('T', ' '))}에 저장 · 추첨이 끝나면 여기서 바로 맞춰 봅니다</p></section>` : '';
+  const cards = weeks.map(w => {
+    const rows = order.map(k => {
+      const L = w.rec[k] || [], J = L.map(l => judge(l, w.d)), won = J.reduce((a, j) => a + j.prize, 0), best = Math.max(0, ...J.map(j => j.m));
+      const hits = [1, 2, 3, 4, 5].map(r => [r, J.filter(j => j.rank === r).length]).filter(x => x[1]);
+      return `<details class="wk ${k === P.method ? 'mine' : ''}"><summary><b>${esc(nm(k))}</b><span class="wh">${hits.length ? hits.map(([r, c]) => `<span class="rkb r${r}">${r}등${c > 1 ? '×' + c : ''}</span>`).join('') : `<span class="cap" style="margin:0;">최고 ${best}개</span>`}</span><span class="ww">${won ? fmt(won) + '원' : '0원'}</span></summary>
+        <div class="lines" style="margin-top:8px;">${L.map((s, i) => { const j = J[i]; return `<div class="ln"><span class="lab">${i + 1}</span><span class="balls">${s.map(n => ball(n, 'sm' + (!w.d.n.includes(n) && !(j.rank === 2 && n === w.d.b) ? ' off' : ''))).join('')}</span><span class="res ${j.rank ? 'win' : 'miss'}">${j.rank ? j.rank + '등' : j.m + '개'}</span></div>`; }).join('')}</div></details>`;
+    }).join('');
+    return `<section class="card"><div class="row" style="justify-content:space-between;"><h2>${w.no}회</h2><span class="pill ${w.real ? 'now' : ''}">${w.real ? '기록' : '재현'} · ${esc(w.d.date.slice(5).replace('-', '/'))}</span></div>
+      <div class="balls" style="margin:8px 0 10px;">${w.d.n.map(n => ball(n, 'sm')).join('')}<span class="plus">+</span>${ball(w.d.b, 'sm')}</div>${rows}</section>`;
+  }).join('');
+  return nextCard + sum + cards;
 }
 function anaRank(){
   const B = A.backtest, R = [...B.methods].sort((a, b) => b.ge3 - a.ge3 || b.mean - a.mean);
@@ -671,6 +703,7 @@ async function load(){
   try{
     const [d, a] = await Promise.all(['data/draws.json', 'data/analysis.json'].map(u => fetch(u, {cache: 'no-cache'}).then(r => { if(!r.ok) throw new Error(u); return r.json(); })));
     const grew = !D.length || d.length > D.length;
+    try{ const r = await fetch('data/rec_log.json', {cache: 'no-cache'}); if(r.ok) RLOG = await r.json(); }catch(e){}
     D = d; A = a;
     $('dataInfo').textContent = `${fmt(D[D.length - 1].no)}회까지`; Cloud.paint();
     paintBadge();
