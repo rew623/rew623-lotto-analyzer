@@ -67,7 +67,7 @@ function countdown(t){
 }
 // 동행복권은 2025년 홈페이지를 바꿔 옛 주소(gameResult.do·TotalGame.jsp)가 오류·빈 화면 → 새 주소만 쓴다(2026-11)
 // 구매는 로그인·예치금이 필요해 깊은 주소가 자주 막힘 → 첫 화면으로 보내고 '사는 법'을 접어 둔다
-const VER = '1.5.0';
+const VER = '1.5.1';
 const LINKS = {
   buy: 'https://www.dhlottery.co.kr/',
   onair: 'https://onair.imbc.com/',
@@ -550,7 +550,7 @@ function recReport(){
     </div>`;
   }).join('');
   return `<section class="card"><h2>추천 방식 성적표</h2>
-      <p class="cap">${fmt(BT.from)}회부터 ${fmt(W)}주 동안 <b>매주 10줄(1만 원)</b>씩, 그 주 직전 기록만 보고 샀다면</p>
+      <p class="cap">${fmt(BT.from)}회부터 ${fmt(W)}주 동안 <b>매주 10줄(1만 원)</b>씩, 그 회차 <b>전까지 쌓인 기록 전부</b>로 골라 샀다면(그 뒤 결과는 안 봄)</p>
       <div class="verdict"><b>${lucky ? `1위 '${esc(nm(M[0].key))}'는 3등 한 번 덕분` : '어느 방식도 앞서지 않습니다'}</b>
         <span>4·5등만 보면 ${M.length}가지 방식 모두 ${fmt(lo, 1)}~${fmt(hi, 1)}% — 무작위로 샀을 때 보통(${fmt(BASE, 0)}%)과 같은 범위. 1만 원을 내면 ${fmt(Math.round(lo) * 100)}~${fmt(Math.round(hi) * 100)}원쯤 돌아옵니다.</span></div>
       <div class="legend"><span><i class="lg-bar"></i>받은 돈 ÷ 낸 돈</span><span><i class="lg-mark"></i>무작위 보통 18%</span></div>
@@ -574,7 +574,7 @@ function anaRank(){
       <table><thead><tr><th>지우는 패턴</th><th class="n">지운 조합</th><th class="n">실제 당첨</th></tr></thead>
       <tbody>${E.map(e => `<tr><td>${esc(e.name)}</td><td class="n">${fmt(e.combo_pct, 2)}%</td><td class="n"><b>${fmt(e.win_pct, 2)}%</b></td></tr>`).join('')}</tbody></table>
       ${fold('왜 그런가요?', `1·3·5·7·9·11 같은 줄은 '그 모양이 드문' 게 아니라 그 모양에 속한 조합 수가 적을 뿐입니다. 한 줄 한 줄의 확률은 모두 1/8,145,060로 같습니다. 그래서 어떤 모양을 지우면 그만큼 당첨번호도 그 안에 있었고(위 두 칸이 같음), 내가 산 한 줄의 확률은 그대로입니다. 지워서 얻는 건 확률이 아니라, 사람들이 많이 고르는 모양(연속·등차·생일)을 피해 당첨금을 덜 나누는 것뿐입니다.`)}</section>` : ''}
-    <section class="card"><h2>분석법 승률 순위</h2><p class="cap">${fmt(B.from)}회부터 매 회, 그 직전 기록만 보고 골랐다면 · ${fmt(R[0].draws)}회</p>
+    <section class="card"><h2>분석법 승률 순위</h2><p class="cap">${fmt(B.from)}회부터 매 회, 그 회차 전까지 쌓인 기록 전부로 골랐다면 · ${fmt(R[0].draws)}회</p>
       <table><thead><tr><th>방법</th><th class="n">승률</th><th class="n">4등↑</th><th class="n">평균 맞음</th></tr></thead>
       <tbody>${R.map((m, i) => `<tr class="${m.meta ? 'meta' : ''}"><td><span class="rk">${i + 1}</span>${esc(m.name)}${m.meta && m.picked ? `<br><small class="cap">주로 고른 방법: ${esc(m.picked[0][0])}</small>` : ''}</td><td class="n"><b>${fmt(m.ge3, 2)}%</b></td><td class="n">${fmt(m.ge4, 3)}%</td><td class="n">${fmt(m.mean, 3)}</td></tr>`).join('')}</tbody></table>
       ${fold('표 읽는 법', `이론값: 승률 ${fmt(B.theory_ge3, 2)}% · 4등↑ ${fmt(B.theory_ge4, 3)}% · 평균 ${B.theory_mean}개. 순위는 매주 바뀝니다. ${R.length}가지를 비교했으니 1위가 이론값보다 조금 높은 건 우연으로도 정상입니다. 노란 줄은 '그때까지 1위였던 방법을 다음 회차에 쓰기' 전략입니다.`)}</section>`;
