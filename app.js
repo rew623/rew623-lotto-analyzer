@@ -67,7 +67,7 @@ function countdown(t){
 }
 // 동행복권은 2025년 홈페이지를 바꿔 옛 주소(gameResult.do·TotalGame.jsp)가 오류·빈 화면 → 새 주소만 쓴다(2026-11)
 // 구매는 로그인·예치금이 필요해 깊은 주소가 자주 막힘 → 첫 화면으로 보내고 '사는 법'을 접어 둔다
-const VER = '1.4.0';
+const VER = '1.4.1';
 const LINKS = {
   buy: 'https://www.dhlottery.co.kr/',
   onair: 'https://onair.imbc.com/',

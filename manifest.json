@@ -1,4 +1,4 @@
-{"id": "/rew623-lotto-analyzer/", "name": "로또 노트", "short_name": "로또 노트", "description": "당첨번호·내 복권 자동 대조·추천 번호",
+{"id": "/rew623-lotto-analyzer/?app=lotto2", "name": "로또 노트", "short_name": "로또 노트", "description": "당첨번호·내 복권 자동 대조·추천 번호",
  "start_url": "./", "scope": "./", "display": "standalone", "orientation": "portrait", "lang": "ko",
  "background_color": "#F4EEE2", "theme_color": "#1F2A44",
  "icons": [
