@@ -176,3 +176,46 @@ button.ln{width:100%; font:inherit; color:inherit; cursor:pointer; text-align:le
 @media (prefers-color-scheme: dark){ .recent .rc.m3 b{color:var(--gold);} }
 .tabbar{width:min(460px, calc(100% - 24px));}
 .tabbar button{font-size:13px; gap:4px;}
+/* 1.4 — 등수표·성적표 카드·같이 보기 */
+table.prize td, table.prize th{padding:7px 6px;}
+.rkb{display:inline-block; font-family:'Jua'; font-size:12.5px; padding:2px 9px; border-radius:999px; background:var(--card2); color:var(--text); white-space:nowrap;}
+.rkb.r1{background:var(--red); color:#fff;} .rkb.r2{background:#E0702E; color:#fff;} .rkb.r3{background:var(--gold); color:#2E2200;}
+.rkb.r4{background:var(--ink); color:#fff;} .rkb.r5{background:var(--card2); color:var(--text); border:1.5px solid var(--line);}
+.rkb.zero{opacity:.45;}
+@media (prefers-color-scheme: dark){ .rkb.r4{background:#3B4C7E;} }
+ol.steps{margin:0; padding-left:20px;} ol.steps li{margin:3px 0;}
+.verdict{background:var(--gold-soft); border-left:5px solid var(--gold); border-radius:14px; padding:12px 14px; margin:10px 0 12px;}
+.verdict b{display:block; font-family:'Jua'; font-weight:400; font-size:17px; color:var(--ink); margin-bottom:2px;}
+.verdict span{font-size:13.5px;}
+@media (prefers-color-scheme: dark){ .verdict b{color:var(--gold);} }
+.legend{display:flex; gap:14px; flex-wrap:wrap; font-size:12.5px; color:var(--sub); margin:0 0 8px;}
+.legend span{display:inline-flex; align-items:center; gap:6px;}
+.lg-bar{width:18px; height:8px; border-radius:4px; background:var(--ink);} .lg-mark{width:3px; height:14px; border-radius:2px; background:var(--red);}
+@media (prefers-color-scheme: dark){ .lg-bar{background:var(--gold);} }
+.mcards{display:grid; gap:10px;}
+@media (min-width:720px){ .mcards{grid-template-columns:1fr 1fr;} }
+.mcard{background:var(--card2); border-radius:16px; padding:12px 14px; border:2px solid transparent;}
+.mcard.mine{border-color:var(--gold); background:var(--card);}
+.mh{display:flex; align-items:center; gap:6px;}
+.mh .rk{margin-right:2px;} .mh b{font-family:'Jua'; font-weight:400; font-size:17px;}
+.mh .now{background:var(--gold); color:#2E2200;}
+.mh .roi{margin-left:auto; font-family:'Jua'; font-size:24px; color:var(--ink); font-variant-numeric:tabular-nums;} .mh .roi small{font-size:14px;}
+@media (prefers-color-scheme: dark){ .mh .roi{color:var(--gold);} }
+.mbar{position:relative; height:12px; border-radius:6px; background:var(--line); margin:8px 0 10px; overflow:visible;}
+.mbar i{position:absolute; left:0; top:0; bottom:0; border-radius:6px; background:var(--ink);}
+@media (prefers-color-scheme: dark){ .mbar i{background:var(--gold);} }
+.mbar s{position:absolute; top:-4px; bottom:-4px; width:3px; border-radius:2px; background:var(--red);}
+.mm{display:grid; grid-template-columns:repeat(3, 1fr); gap:6px; font-size:12.5px; color:var(--sub);}
+.mm span{display:flex; flex-direction:column;} .mm b{font-size:15px; color:var(--text); font-variant-numeric:tabular-nums;}
+.mm .loss b{color:var(--red);}
+@media (prefers-color-scheme: dark){ .mm .loss b{color:#FF8A7A;} }
+.mchips{display:flex; gap:6px; flex-wrap:wrap; margin-top:10px;}
+.mnote{font-size:13px; margin:8px 0 0; color:var(--text);}
+.fold.mini > summary{font-size:12.5px;}
+.hitc{display:inline-block; font-size:12.5px; padding:1px 8px; margin:2px 3px 2px 0; border-radius:999px; background:var(--card); border:1px solid var(--line);}
+.share-st{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
+.who{display:inline-flex; align-items:center; gap:6px; background:var(--card2); border-radius:999px; padding:3px 10px 3px 4px; font-size:13px;}
+.who i{display:grid; place-items:center; width:22px; height:22px; border-radius:50%; background:var(--ink); color:#fff; font-style:normal; font-family:'Jua'; font-size:12px;}
+.code{font-family:'Jua'; font-size:30px; letter-spacing:.18em; color:var(--ink); background:var(--gold-soft); border-radius:14px; padding:8px 14px; display:inline-block;}
+@media (prefers-color-scheme: dark){ .code{color:var(--gold);} }
+.bar-sub .sync{margin-left:6px;}

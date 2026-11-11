@@ -16,3 +16,6 @@
 - 패턴 소거(사용자 질문 2026-11-11): '안 나올 조합을 지우면 확률이 오르나' → elim 표(지운 조합 % = 실제 당첨 %)로 아니라고 보임.
 - data 형식을 바꾸면 app.js 와 update.py 를 함께 고친다.
 - main 에 직접 푸시.
+- 같이 보기(1.4, 2026-11-11): Firebase bidproject-452e5 의 `lotto/{rid}` 공간 + 초대 코드. 구조·보안 규칙은 docs/같이보기.md. 복권은 `Tickets.add/remove` 만 통해 저장(클라우드로도 감), 공유 설정 키는 app.js `SHARED`.
+- 동행복권 옛 주소(gameResult.do·TotalGame.jsp)는 2025 개편으로 오류 → 결과 `/lt645/result`, 구매는 첫 화면.
+- 설치: manifest 에 PNG 아이콘 192·512·maskable 필수(SVG 만이면 크롬이 '바로가기'만).

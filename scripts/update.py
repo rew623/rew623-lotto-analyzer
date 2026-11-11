@@ -301,7 +301,7 @@ def rec_backtest(draws):
     for key, name, _, _, _ in REC_METHODS:
         rank = collections.Counter()
         spent = won = 0
-        rows = []
+        rows, hits = [], []
         past = {tuple(d["n"]) for d in draws[:START]}
         for i in range(START, len(draws)):
             d = draws[i]
@@ -311,14 +311,17 @@ def rec_backtest(draws):
                 rk = 1 if m == 6 else 2 if m == 5 and d["b"] in s else 3 if m == 5 else 4 if m == 4 else 5 if m == 3 else 0
                 rank[rk] += 1
                 spent += 1000
-                won += {1: d.get("p1") or 0, 2: d.get("p2") or 0, 3: d.get("p3") or 0, 4: 50000, 5: 5000}.get(rk, 0)
+                pz = {1: d.get("p1") or 0, 2: d.get("p2") or 0, 3: d.get("p3") or 0, 4: 50000, 5: 5000}.get(rk, 0)
+                won += pz
+                if 1 <= rk <= 4:
+                    hits.append([d["no"], rk, pz])   # 4등 이상 맞은 회차(앱 '언제 맞았나')
                 best = max(best, m)
             rows.append([d["no"], best])
             past.add(tuple(d["n"]))
         lines = sum(rank.values())
         out.append({"key": key, "name": name, "draws": len(draws) - START, "lines": lines, "rank": [rank[k] for k in range(1, 6)],
                     "ge3": round(sum(rank[k] for k in range(1, 6)) / lines * 100, 3), "spent": spent, "won": won,
-                    "roi": round(won / spent * 100, 1)})
+                    "roi": round(won / spent * 100, 1), "hits": hits})
         recent[key] = rows[-30:]
     return {"from": START + 1, "methods": out, "recent": recent}
 

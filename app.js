@@ -7,7 +7,7 @@ const fmt = (n, d = 0) => Number(n).toLocaleString('ko-KR', {minimumFractionDigi
 const won = (n) => n ? (n >= 1e8 ? fmt(n / 1e8, 1) + '억 원' : fmt(n) + '원') : '-';
 const LS = {
   get(k, d){ try{ const v = localStorage.getItem('lt.' + k); return v == null ? d : JSON.parse(v); }catch(e){ return d; } },
-  set(k, v){ try{ localStorage.setItem('lt.' + k, JSON.stringify(v)); }catch(e){} },
+  set(k, v){ try{ localStorage.setItem('lt.' + k, JSON.stringify(v)); }catch(e){} try{ Cloud.kv(k, v); }catch(e){} },
 };
 const color = (n) => n <= 10 ? 'c1' : n <= 20 ? 'c2' : n <= 30 ? 'c3' : n <= 40 ? 'c4' : 'c5';
 const ball = (n, cls = '') => `<span class="ball ${color(n)} ${cls}">${n}</span>`;
@@ -65,10 +65,13 @@ function countdown(t){
   const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
   return d ? `${d}일 ${two(h)}:${two(m)}:${two(s % 60)}` : `${two(h)}:${two(m)}:${two(s % 60)}`;
 }
+// 동행복권은 2025년 홈페이지를 바꿔 옛 주소(gameResult.do·TotalGame.jsp)가 오류·빈 화면 → 새 주소만 쓴다(2026-11)
+// 구매는 로그인·예치금이 필요해 깊은 주소가 자주 막힘 → 첫 화면으로 보내고 '사는 법'을 접어 둔다
+const VER = '1.4.0';
 const LINKS = {
-  buy: 'https://el.dhlottery.co.kr/game/TotalGame.jsp?LottoId=LO40',   // 동행복권 로또6/45 인터넷 구매(로그인·예치금 필요, 1인 1주 5천 원까지)
+  buy: 'https://www.dhlottery.co.kr/',
   onair: 'https://onair.imbc.com/',
-  result: 'https://www.dhlottery.co.kr/gameResult.do?method=byWin',
+  result: 'https://www.dhlottery.co.kr/lt645/result',
   yt: 'https://www.youtube.com/results?search_query=' + encodeURIComponent('로또 6/45 추첨 방송'),
 };
 
@@ -158,8 +161,8 @@ function gen(o){
 const Tickets = {
   all(){ return LS.get('tickets', []); },
   save(list){ LS.set('tickets', list); paintBadge(); },
-  add(t){ const l = this.all(); l.unshift({id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), at: new Date().toISOString(), ...t}); this.save(l); },
-  remove(id){ this.save(this.all().filter(t => t.id !== id)); },
+  add(t){ const l = this.all(), x = {id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), at: new Date().toISOString(), ...t}; l.unshift(x); this.save(l); Cloud.putTicket(x); },
+  remove(id){ this.save(this.all().filter(t => t.id !== id)); Cloud.delTicket(id); },
 };
 function judge(line, d){
   const m = line.filter(x => d.n.includes(x)).length, b = line.includes(d.b);
@@ -220,6 +223,173 @@ $('scanFile').onchange = async (e) => {
   }catch(err){ toast('사진을 읽지 못했습니다'); }
 };
 
+// ---------------------------------------------------------------- 같이 보기 (배우자와 같은 화면, 소은이 앱처럼 초대 코드)
+// Firebase(bidproject-452e5, 낙찰가 앱과 같은 프로젝트 — 구글 로그인·rew623.github.io 승인 돼 있음)
+//   lotto/{rid}                 공간(만든 사람 owner)        lotto/{rid}/members/{uid}  {name, at}
+//   lotto/{rid}/tickets/{id}    {t: 복권 JSON 문자열, at}     lotto/{rid}/kv/state       {키: JSON 문자열} — pref·var{회차}·picked…
+//   lottoInvites/{코드}         {rid, by, exp(7일)}          users/{uid}/lotto/room     {rid} (내가 들어간 공간)
+// Firestore 는 배열 안 배열을 못 넣어 값은 문자열로. 보안 규칙은 docs/같이보기.md (콘솔에 붙여 넣기)
+const FB_CONFIG = {
+  apiKey: 'AIzaSyD3jJD98w4FP8FDKFkvmA2K54ophlqyws0', authDomain: 'bidproject-452e5.firebaseapp.com', projectId: 'bidproject-452e5',
+  storageBucket: 'bidproject-452e5.firebasestorage.app', messagingSenderId: '220864509888', appId: '1:220864509888:web:420d8926f699090f9fba25',
+};   // 웹 앱 설정값은 공개돼도 되는 값 — 데이터는 보안 규칙이 지킨다
+const FB_VER = '10.12.2';
+const SHARED = (k) => k === 'pref' || /^var\d+$/.test(k) || /^picked\d+/.test(k);
+const Cloud = {
+  user: null, db: null, rid: null, members: [], status: '', loading: null, unsubs: [], q: {},
+  kv(k, v){
+    if(!this.rid || !SHARED(k)) return;
+    this.q[k] = JSON.stringify(v);
+    clearTimeout(this._t); this._t = setTimeout(() => this.flush(), 400);
+  },
+  flush(){
+    const q = this.q; this.q = {};
+    if(!this.rid || !Object.keys(q).length) return;
+    this.room().collection('kv').doc('state').set(q, {merge: true}).catch(e => this.fail(e));
+  },
+  room(){ return this.db.collection('lotto').doc(this.rid); },
+  putTicket(t){ if(this.rid) this.room().collection('tickets').doc(t.id).set({t: JSON.stringify(t), at: t.at}).catch(e => this.fail(e)); },
+  delTicket(id){ if(this.rid) this.room().collection('tickets').doc(id).delete().catch(e => this.fail(e)); },
+  fail(e){ this.status = '저장 실패: ' + (e.code || e.message); console.warn(e); this.paint(); },
+  loadScript(src){ return new Promise((ok, no) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => no(new Error('Firebase를 불러오지 못했습니다')); document.head.appendChild(s); }); },
+  init(){
+    if(this.loading) return this.loading;
+    this.loading = (async () => {
+      const u = `https://www.gstatic.com/firebasejs/${FB_VER}/`;
+      await this.loadScript(u + 'firebase-app-compat.js');
+      await Promise.all([this.loadScript(u + 'firebase-auth-compat.js'), this.loadScript(u + 'firebase-firestore-compat.js')]);
+      firebase.initializeApp(FB_CONFIG);
+      this.db = firebase.firestore();
+      firebase.auth().onAuthStateChanged(async (user) => {
+        this.user = user; this.stop();
+        if(user){
+          LS.set('cloud', true);
+          try{
+            const r = await this.db.collection('users').doc(user.uid).collection('lotto').doc('room').get();
+            if(r.exists) await this.enter(r.data().rid); else await this.enter(await this.create(), true);
+          }catch(e){ this.fail(e); }
+        }
+        this.paint();
+      });
+    })().catch(e => { this.loading = null; this.status = e.message; this.paint(); throw e; });
+    return this.loading;
+  },
+  me(){ const u = this.user; return {name: (u.displayName || '나').slice(0, 20), at: Date.now()}; },
+  async create(){
+    const ref = this.db.collection('lotto').doc();
+    await ref.set({owner: this.user.uid, at: Date.now()});
+    await ref.collection('members').doc(this.user.uid).set(this.me());
+    return ref.id;
+  },
+  // 공간에 들어가며 이 폰에 있던 복권을 올려 합친다(같은 id·같은 QR은 한 번만). 새로 만든 공간이면 설정도 올림
+  async enter(rid, fresh){
+    this.rid = rid;
+    await this.db.collection('users').doc(this.user.uid).collection('lotto').doc('room').set({rid});
+    await this.room().collection('members').doc(this.user.uid).set(this.me(), {merge: true});
+    if(fresh){
+      const kv = {};
+      for(let i = 0; i < localStorage.length; i++){ const k = localStorage.key(i); if(k.startsWith('lt.') && SHARED(k.slice(3))) kv[k.slice(3)] = localStorage.getItem(k); }
+      if(Object.keys(kv).length) await this.room().collection('kv').doc('state').set(kv, {merge: true});
+    }
+    {
+      const snap = await this.room().collection('tickets').get(), have = new Set(), qrs = new Set();
+      snap.forEach(d => { have.add(d.id); try{ const t = JSON.parse(d.data().t); if(t.qr) qrs.add(t.qr); }catch(e){} });
+      const b = this.db.batch(); let n = 0;
+      for(const t of Tickets.all()) if(!have.has(t.id) && !(t.qr && qrs.has(t.qr)) && n < 400){ b.set(this.room().collection('tickets').doc(t.id), {t: JSON.stringify(t), at: t.at}); n++; }
+      if(n) await b.commit();
+    }
+    this.listen();
+  },
+  listen(){
+    const R = this.room();
+    this.unsubs.push(R.collection('tickets').onSnapshot(s => {
+      const l = []; s.forEach(d => { try{ l.push(JSON.parse(d.data().t)); }catch(e){} });
+      l.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+      try{ localStorage.setItem('lt.tickets', JSON.stringify(l)); }catch(e){}
+      paintBadge(); this.repaint(['home', 'tickets']);
+    }, e => this.fail(e)));
+    this.unsubs.push(R.collection('kv').doc('state').onSnapshot(s => {
+      if(s.metadata.hasPendingWrites) return;   // 내가 보낸 것
+      const d = s.data() || {}; let ch = false;
+      for(const [k, v] of Object.entries(d)) if(SHARED(k) && typeof v === 'string' && localStorage.getItem('lt.' + k) !== v){ try{ localStorage.setItem('lt.' + k, v); ch = true; }catch(e){} }
+      if(ch) this.repaint(['home', 'settings']);
+    }, e => this.fail(e)));
+    this.unsubs.push(R.collection('members').onSnapshot(s => { this.members = s.docs.map(d => ({uid: d.id, ...d.data()})); this.paint(); }, () => {}));
+  },
+  stop(){ this.unsubs.forEach(f => f()); this.unsubs = []; this.rid = null; this.members = []; },
+  // 다른 폰이 바꾸면 지금 보는 화면을 다시 그린다(아래 창이 열려 있거나 입력 중이면 건너뜀)
+  repaint(views){
+    if(!views.includes(view) || $('sheet') || document.activeElement?.matches?.('input, select, textarea') || !A) return;
+    const y = window.scrollY; VIEWS[view](); window.scrollTo(0, y);
+  },
+  async signIn(){
+    try{
+      if(!window.firebase?.apps?.length){ this.status = '준비 중… 잠시 뒤 다시 눌러 주세요'; this.paint(); await this.init(); }
+      const p = new firebase.auth.GoogleAuthProvider();
+      try{ await firebase.auth().signInWithPopup(p); }
+      catch(e){ if(/popup-blocked|operation-not-supported/.test(e.code || '')) await firebase.auth().signInWithRedirect(p); else throw e; }
+      this.status = '';
+    }catch(e){ this.status = '로그인 실패: ' + (e.code || e.message); }
+    this.paint();
+  },
+  async signOut(){
+    if(!await ask('로그아웃할까요? 이 폰의 복권 목록은 지우고, 같이 보기 공간에는 그대로 남습니다.', {ok: '로그아웃'})) return;
+    await this.init(); this.stop(); await firebase.auth().signOut(); LS.set('cloud', false);
+    try{ localStorage.removeItem('lt.tickets'); }catch(e){}
+    toast('로그아웃했습니다'); show('settings');
+  },
+  async invite(){
+    const A_ = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', r = new Uint32Array(6); crypto.getRandomValues(r);
+    const code = [...r].map(x => A_[x % A_.length]).join('');
+    await this.db.collection('lottoInvites').doc(code).set({rid: this.rid, by: this.user.uid, exp: Date.now() + 7 * 864e5});
+    return code;
+  },
+  async join(code){
+    code = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if(code.length !== 6) throw new Error('코드 6자리를 넣어 주세요');
+    const s = await this.db.collection('lottoInvites').doc(code).get();
+    if(!s.exists || s.data().exp < Date.now()) throw new Error('없거나 기간이 지난 코드입니다');
+    const rid = s.data().rid;
+    if(rid === this.rid) throw new Error('이미 같은 공간입니다');
+    this.stop();
+    this.rid = rid;
+    await this.room().collection('members').doc(this.user.uid).set(this.me());   // 먼저 회원이 돼야 공간을 읽을 수 있음
+    await this.enter(rid);
+    s.ref.delete().catch(() => {});
+  },
+  paint(){
+    const n = this.members.length, el = $('dataInfo');
+    if(el && D.length) el.innerHTML = `${fmt(D[D.length - 1].no)}회까지${this.rid ? `<span class="sync" title="같이 보기">🔗${n > 1 ? ' ' + n + '명' : ''}</span>` : ''}`;
+    if(view === 'settings' && $('shareBox')) $('shareBox').innerHTML = shareBox();
+  },
+};
+function shareBox(){
+  const C = Cloud;
+  if(!C.user) return `<p class="cap">구글로 로그인하면 내 복권·추천 방식·고른 줄이 저장되고, 초대 코드로 배우자와 <b>같은 화면</b>을 봅니다. 한쪽이 QR을 찍으면 다른 폰에도 바로 뜹니다.</p>
+    <button class="btn" type="button" data-cloud="in">구글로 로그인</button>${C.status ? `<p class="cap" style="color:var(--red); margin:8px 0 0;">${esc(C.status)}</p>` : ''}`;
+  return `<div class="share-st">${C.members.map(m => `<span class="who"><i>${esc((m.name || '?').slice(0, 1))}</i>${esc(m.name || '')}${m.uid === C.user.uid ? ' (나)' : ''}</span>`).join('') || '<span class="cap" style="margin:0;">연결 중…</span>'}</div>
+    <p class="cap" style="margin:10px 0;">${C.members.length > 1 ? '이 사람들과 같은 화면을 봅니다.' : '아직 혼자입니다. 초대 코드를 만들어 배우자 폰의 이 화면에 넣게 하세요.'}</p>
+    <div class="row"><button class="btn gold" type="button" data-cloud="inv">초대 코드 만들기</button><button class="btn ghost" type="button" data-cloud="join">코드로 들어가기</button></div>
+    <div id="invOut"></div>
+    ${C.status ? `<p class="cap" style="color:var(--red); margin:8px 0 0;">${esc(C.status)}</p>` : ''}
+    <p class="cap" style="margin:12px 0 0;">${esc(C.user.displayName || '')} 로그인 · <button class="pill link" type="button" data-cloud="out">로그아웃</button></p>`;
+}
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-cloud]'); if(!b) return;
+  const a = b.dataset.cloud;
+  if(a === 'in') return Cloud.signIn();
+  if(a === 'out') return Cloud.signOut();
+  try{
+    if(a === 'inv'){ const c = await Cloud.invite(); $('invOut').innerHTML = `<div style="margin-top:12px;"><span class="code">${c}</span><p class="cap" style="margin:6px 0 0;">7일 안에 배우자 폰 → 설정 → '코드로 들어가기'에 입력 · 한 번 쓰면 사라짐</p></div>`; }
+    if(a === 'join') openSheet(`<h2>코드로 들어가기</h2><p class="cap">배우자가 만든 6자리 코드. 이 폰의 복권도 그 공간으로 합쳐집니다.</p>
+      <input id="jCode" maxlength="8" autocomplete="off" style="font:inherit; font-size:24px; letter-spacing:.15em; text-transform:uppercase; width:100%; padding:10px 12px; border-radius:12px; border:1.5px solid var(--line); background:var(--card); color:var(--text);">
+      <div class="row" style="margin-top:14px;"><button class="btn ghost" id="jNo" type="button">닫기</button><button class="btn" id="jOk" type="button" style="margin-left:auto;">들어가기</button></div>`, () => {
+        $('jCode').focus(); $('jNo').onclick = () => closeSheet();
+        $('jOk').onclick = async () => { try{ await Cloud.join($('jCode').value); closeSheet(); toast('같이 보기 시작!'); show('settings'); }catch(err){ toast(err.message || '들어가지 못했습니다'); } };
+      });
+  }catch(err){ toast(err.code === 'permission-denied' ? '권한 없음 — 보안 규칙을 넣었는지 확인' : (err.message || '실패')); }
+});
+
 // ---------------------------------------------------------------- 홈
 let timer = null, poll = null;
 function renderHome(){
@@ -246,7 +416,9 @@ function renderHome(){
     <section class="card">
       <div class="row" style="justify-content:space-between;"><h2>${last.no}회 당첨번호</h2><span class="cap" style="margin:0;">${esc(last.date)}</span></div>
       <div class="balls" style="margin:8px 0;">${last.n.map(n => ball(n)).join('')}<span class="plus">+</span>${ball(last.b)}</div>
-      <p class="cap" style="margin:0;">1등 ${last.w1 != null ? fmt(last.w1) + '명' : '-'} · 1인당 ${won(last.p1)}</p>
+      <p class="cap" style="margin:0 0 8px;">1등 ${last.w1 != null ? fmt(last.w1) + '명' : '-'} · 1인당 ${won(last.p1)}</p>
+      ${fold('등수별 당첨금·확률', prizeTable(last))}
+      ${fold('인터넷으로 사는 법', `<ol class="steps"><li>🛒 구매 → 동행복권 로그인(처음이면 회원가입·본인인증)</li><li>마이페이지에서 <b>예치금 충전</b>(가상계좌·간편충전)</li><li>위 메뉴 <b>로또6/45 → 구매하기</b> → 자동·수동 고르기</li><li>산 뒤 마이페이지 구매내역의 QR(또는 번호)을 '내 복권'에 넣기</li></ol><p class="cap" style="margin:6px 0 0;">인터넷은 1인 1회차 5,000원(5게임)까지 · 토요일 20시에 판매 마감, 일요일 아침 6시에 다시 열림(시간은 동행복권 안내가 우선) · 휴대폰 화면이 깨지면 브라우저 메뉴의 'PC 버전'.</p>`)}
     </section>
     <section class="card">
       <div class="row" style="justify-content:space-between;"><h2>${sc.no}회 추천 ${rec.lines.length}줄</h2><button class="pill link" data-goto="settings" type="button">${esc(mName)}${v ? ` · ${v + 1}번째` : ''} ›</button></div>
@@ -270,6 +442,14 @@ function renderHome(){
   // 추첨 뒤 결과가 들어오기 전엔 2분마다 다시 받아 본다
   clearInterval(poll);
   if(sc.pending) poll = setInterval(async () => { if(document.hidden) return; if(await load() && schedule().no !== sc.no) renderHome(); }, 120e3);
+}
+
+// 등수별 당첨금·확률 (1~3등은 그 회차 판매액에서 나눠 가져 매주 바뀜 → 지난 회차 금액)
+function prizeTable(d){
+  const R = [[1, '6개 모두', '8,145,060', d.p1], [2, '5개 + 보너스', '1,357,510', d.p2], [3, '5개', '35,724', d.p3], [4, '4개', '733', 50000], [5, '3개', '45', 5000]];
+  return `<table class="prize"><thead><tr><th>등수</th><th>맞힐 것</th><th class="n">확률</th><th class="n">당첨금</th></tr></thead><tbody>
+    ${R.map(([r, c, o, p]) => `<tr><td><span class="rkb r${r}">${r}등</span></td><td>${c}</td><td class="n">1/${o}</td><td class="n"><b>${won(p)}</b></td></tr>`).join('')}</tbody></table>
+    <p class="cap" style="margin:8px 0 0;">1~3등 = ${d.no}회 1인당 금액(판매액·당첨자 수에 따라 매주 다름) · 4등 5만 원·5등 5천 원은 고정 · 한 줄이 5등 이상일 확률 약 1/42.<br>세금: 200만 원 넘는 부분 22%, 3억 넘는 부분 33% · 받는 곳: 1등 농협은행 본점, 2·3등 농협은행 지점, 4·5등 판매점(인터넷 구매는 예치금으로) · 추첨일부터 1년 안에.</p>`;
 }
 
 // ---------------------------------------------------------------- 내 복권
@@ -335,19 +515,38 @@ function renderAnalysis(){
   $('seg').onclick = (e) => { const b = e.target.closest('[data-s]'); if(b){ anaSeg = b.dataset.s; LS.set('anaSeg', anaSeg); renderAnalysis(); } };
   const ss = $('nSort'); if(ss){ ss.value = LS.get('nSort', 'freq'); ss.onchange = () => { LS.set('nSort', ss.value); renderAnalysis(); }; }
 }
+// 추천 방식 성적표 — '매주 10줄씩 샀다면 얼마 쓰고 얼마 받았나'를 방식마다 카드 한 장으로 (한눈에 비교)
 function recReport(){
   const BT = A.rec_bt; if(!BT) return '';
-  const P = Pref.get(), L = BT.methods[0].lines;
-  // 무작위 한 줄 기대: 5등 22.4‰ · 4등 1.36‰ · 3등 0.028‰
-  const e5 = L * 0.0224384, e4 = L * 0.0013649, sd5 = Math.sqrt(e5), sd4 = Math.sqrt(e4);
+  const P = Pref.get(), W = BT.methods[0].draws, M = [...BT.methods].sort((a, b) => b.roi - a.roi);
+  const man = (n) => { n = Math.round(n); return n >= 1e8 ? fmt(n / 1e8, 1) + '억' : fmt(Math.round(n / 1e4)) + '만'; };
+  const nm = (k) => METHODS.find(x => x[0] === k)?.[1] || k;
+  // 무작위 한 줄 기대 — 5등 22.44‰×5천 + 4등 1.365‰×5만 = 180원(18.0%). 3등↑은 드물어(1,149회×10줄에 0.3번) 빼고 비교
+  const BASE = 18.0, mx = Math.max(40, ...M.map(m => m.roi)) * 1.05;
+  const no3 = (m) => (m.rank[4] * 5000 + m.rank[3] * 50000) / m.spent * 100;
+  const lo = Math.min(...M.map(no3)), hi = Math.max(...M.map(no3));
+  const lucky = M[0].rank[0] + M[0].rank[1] + M[0].rank[2] > 0;
   const recent = BT.recent[P.method] || [];
   const rk = (m) => m >= 6 ? '1등' : m === 5 ? '3등↑' : m === 4 ? '4등' : m === 3 ? '5등' : '';
-  return `<section class="card"><h2>추천 방식 성적표</h2><p class="cap">${fmt(BT.from)}회부터 ${fmt(BT.methods[0].draws)}회, 그 회차 직전 기록만으로 10줄씩 샀다면 · 1줄 1,000원</p>
-      <table><thead><tr><th>방식</th><th class="n">5등</th><th class="n">4등</th><th class="n">3등↑</th><th class="n">회수율</th></tr></thead>
-      <tbody>${BT.methods.map(m => `<tr class="${m.key === P.method ? 'meta' : ''}"><td>${esc(METHODS.find(x => x[0] === m.key)?.[1] || m.name)}</td><td class="n">${fmt(m.rank[4])}</td><td class="n">${fmt(m.rank[3])}</td><td class="n">${fmt(m.rank[0] + m.rank[1] + m.rank[2])}</td><td class="n"><b>${fmt(m.roi, 1)}%</b></td></tr>`).join('')}
-        <tr><td class="cap">무작위 기대값</td><td class="n cap">${fmt(e5)}</td><td class="n cap">${fmt(e4, 1)}</td><td class="n cap">${fmt(L * 0.0000288, 1)}</td><td class="n cap">-</td></tr></tbody></table>
-      ${fold('결과 읽는 법', `${fmt(L)}줄씩 샀을 때 무작위라도 5등은 ${fmt(e5)}번 ± ${fmt(sd5 * 2)}, 4등은 ${fmt(e4, 1)}번 ± ${fmt(sd4 * 2, 1)} 정도는 운으로 오르내립니다. 모든 방식이 이 범위 안이라 어느 방식도 확률이 더 높지 않습니다. 회수율은 3등 한 번만 나와도 크게 뛰어서(미출현 방식이 그 경우) 방식의 실력보다 운을 더 많이 보여 줍니다. 1·2등은 한 번도 없었고, 이론적으로도 1,149회×10줄이면 1등 기대는 0.0014번입니다.`)}
-      <h3>지금 방식(${esc(METHODS.find(x => x[0] === P.method)?.[1] || '')}) 최근 30회</h3>
+  const cards = M.map((m, i) => {
+    const big = (m.hits || []).filter(h => h[1] <= 3), h4 = (m.hits || []).filter(h => h[1] === 4);
+    return `<div class="mcard ${m.key === P.method ? 'mine' : ''}">
+      <div class="mh"><span class="rk">${i + 1}</span><b>${esc(nm(m.key))}</b>${m.key === P.method ? '<span class="pill now">지금 방식</span>' : ''}<span class="roi">${fmt(m.roi, 1)}<small>%</small></span></div>
+      <div class="mbar" aria-label="회수율 ${fmt(m.roi, 1)}%"><i style="width:${(m.roi / mx * 100).toFixed(1)}%"></i><s style="left:${(BASE / mx * 100).toFixed(1)}%"></s></div>
+      <div class="mm"><span>낸 돈<b>${man(m.spent)}원</b></span><span>받은 돈<b>${man(m.won)}원</b></span><span class="loss">손해<b>−${man(m.spent - m.won)}원</b></span></div>
+      <div class="mchips">${[[3, m.rank[0] + m.rank[1] + m.rank[2], '3등↑'], [4, m.rank[3], '4등'], [5, m.rank[4], '5등']].map(([r, c, t]) => `<span class="rkb r${r} ${c ? '' : 'zero'}">${t} ${fmt(c)}번</span>`).join('')}</div>
+      ${big.length ? `<p class="mnote">⭐ ${big.map(h => `${h[0]}회 ${h[1]}등 ${won(h[2])}`).join(', ')} — 이 한 번을 빼면 ${fmt(no3(m), 1)}%</p>` : ''}
+      ${h4.length ? `<details class="fold mini"><summary>4등 맞은 회차 ${h4.length}번</summary><div class="fold-b">${h4.map(h => `<span class="hitc">${h[0]}회</span>`).join('')}</div></details>` : ''}
+    </div>`;
+  }).join('');
+  return `<section class="card"><h2>추천 방식 성적표</h2>
+      <p class="cap">${fmt(BT.from)}회부터 ${fmt(W)}주 동안 <b>매주 10줄(1만 원)</b>씩, 그 주 직전 기록만 보고 샀다면</p>
+      <div class="verdict"><b>${lucky ? `1위 '${esc(nm(M[0].key))}'는 3등 한 번 덕분` : '어느 방식도 앞서지 않습니다'}</b>
+        <span>4·5등만 보면 여섯 방식 모두 ${fmt(lo, 1)}~${fmt(hi, 1)}% — 무작위로 샀을 때 보통(${fmt(BASE, 0)}%)과 같은 범위. 1만 원을 내면 ${fmt(Math.round(lo) * 100)}~${fmt(Math.round(hi) * 100)}원쯤 돌아옵니다.</span></div>
+      <div class="legend"><span><i class="lg-bar"></i>받은 돈 ÷ 낸 돈</span><span><i class="lg-mark"></i>무작위 보통 18%</span></div>
+      <div class="mcards">${cards}</div>
+      ${fold('결과 읽는 법', `${fmt(W)}주×10줄 = ${fmt(BT.methods[0].lines)}줄. 무작위로 사도 5등은 약 ${fmt(BT.methods[0].lines * 0.0224384)}번(± ${fmt(Math.sqrt(BT.methods[0].lines * 0.0224384) * 2)}), 4등은 약 ${fmt(BT.methods[0].lines * 0.0013649, 1)}번(± ${fmt(Math.sqrt(BT.methods[0].lines * 0.0013649) * 2, 1)})은 운으로 오르내립니다. 모든 방식이 이 범위 안이라 어느 방식도 확률이 더 높지 않습니다. 3등(150만 원 안팎) 한 번이 회수율을 10%p 넘게 올리므로, 위 순위는 실력보다 운입니다. 1·2등은 한 번도 없었고 이론상 기대도 0.0014번입니다.`)}
+      <h3>지금 방식(${esc(nm(P.method))}) 최근 30회</h3>
       <div class="recent">${recent.slice().reverse().map(([no, m]) => `<span class="rc m${Math.min(m, 5)}" title="${no}회 가장 많이 맞은 줄 ${m}개"><b>${m}</b><small>${no}</small>${rk(m) ? `<i>${rk(m)}</i>` : ''}</span>`).join('')}</div>
       <p class="cap" style="margin:8px 0 0;">숫자 = 그 회차 10줄 중 가장 많이 맞은 개수</p></section>`;
 }
@@ -380,7 +579,7 @@ function anaNums(){
   const unit = sort === 'gap' ? '회째' : '번';
   return `<div class="note"><b>번호별 출현은 무작위 범위 안입니다</b>${fold('자세히', `${fmt(A.n_draws)}회 동안 번호마다 평균 ${fmt(A.freq_expect, 1)}번 (최소 ${Math.min(...A.freq)} · 최대 ${Math.max(...A.freq)}). 카이제곱 ${fmt(A.chi2, 1)} &lt; 무작위 한계 ${fmt(A.chi2_crit, 1)}. 지난 결과일 뿐 다음 회차 확률과는 관계없습니다.`)}</div>
     <section class="card"><div class="row" style="justify-content:space-between; margin-bottom:10px;"><h2>번호별</h2>
-      <select id="nSort" style="font:inherit; padding:6px 10px; border-radius:10px; border:1.5px solid var(--line); background:var(--surface); color:var(--text);"><option value="freq">전체 많이 나온 순</option><option value="r50">최근 50회 많이</option><option value="r10">최근 10회 많이</option><option value="gap">오래 안 나온 순</option><option value="no">번호 순</option></select></div>
+      <select id="nSort" style="font:inherit; padding:6px 10px; border-radius:10px; border:1.5px solid var(--line); background:var(--card); color:var(--text);"><option value="freq">전체 많이 나온 순</option><option value="r50">최근 50회 많이</option><option value="r10">최근 10회 많이</option><option value="gap">오래 안 나온 순</option><option value="no">번호 순</option></select></div>
       <div class="g45">${N.map(x => `<div class="c45">${ball(x.n, 'sm')}<span class="v">${v(x)}${unit}</span><span class="b"><i style="width:${(v(x) / mx * 100).toFixed(0)}%"></i></span></div>`).join('')}</div>
 </section>
     <section class="card"><h2>함께 많이 나온 쌍</h2>
@@ -413,11 +612,14 @@ function renderSettings(){
     <section class="card"><h2>줄 수</h2><div class="seg" style="margin:8px 0 0;">${[5, 10].map(n => `<button type="button" data-n="${n}" class="${P.lines === n ? 'on' : ''}">${n}줄</button>`).join('')}</div></section>
     <section class="card"><h2>새 추천 받기</h2><p class="cap">같은 방식으로 ${sc.no}회 번호를 다시 뽑습니다. 지금 ${v + 1}번째 추천</p>
       <div class="row"><button class="btn" id="newRec" type="button">🎲 새 추천 받기</button>${v ? '<button class="btn ghost" id="resetRec" type="button">처음 추천으로</button>' : ''}</div></section>
-    <section class="card"><h2>앱 정보</h2><p class="cap" style="margin:0;">당첨번호 ${fmt(D[D.length - 1].no)}회까지 · 분석 갱신 ${esc(A.updated_at.slice(0, 16).replace('T', ' '))}<br>내 복권·설정은 이 폰에만 저장됩니다.</p></section>`;
+    <section class="card"><h2>👫 같이 보기</h2><div id="shareBox">${shareBox()}</div></section>
+    <section class="card"><h2>앱 정보</h2><p class="cap" style="margin:0;">당첨번호 ${fmt(D[D.length - 1].no)}회까지 · 분석 갱신 ${esc(A.updated_at.slice(0, 16).replace('T', ' '))} · ${VER}<br>${Cloud.rid ? '내 복권·설정은 같이 보기 공간에 저장됩니다.' : '로그인 전에는 이 폰에만 저장됩니다.'}</p>
+      ${fold('앱으로 설치가 안 될 때', '크롬: 오른쪽 위 ⋮ → <b>앱 설치</b>(또는 홈 화면에 추가 → 설치). \'바로가기 만들기\'만 나오거나 \'이미 설치됨\'이면 홈 화면의 옛 로또 노트 아이콘을 길게 눌러 삭제한 뒤 이 페이지를 새로 고침하고 다시 하세요. 아이폰: 사파리 공유 → 홈 화면에 추가.')}</section>`;
   $('main').querySelectorAll('[data-m]').forEach(b => b.onclick = () => { Pref.set({method: b.dataset.m}); renderSettings(); toast('추천 방식을 바꿨습니다'); });
   $('main').querySelectorAll('[data-n]').forEach(b => b.onclick = () => { Pref.set({lines: +b.dataset.n}); renderSettings(); });
   $('newRec').onclick = () => { LS.set('var' + sc.no, v + 1); toast('새 추천을 받았습니다'); show('home'); };
   $('resetRec') && ($('resetRec').onclick = () => { LS.set('var' + sc.no, 0); renderSettings(); });
+  Cloud.init().catch(() => {});   // 로그인 팝업이 막히지 않게 미리 불러 둠
 }
 document.addEventListener('click', e => { const g = e.target.closest('[data-goto]'); if(g){ e.preventDefault(); show(g.dataset.goto); } });
 const VIEWS = {home: renderHome, tickets: renderTickets, analysis: renderAnalysis, settings: renderSettings};
@@ -460,10 +662,10 @@ async function load(){
     const [d, a] = await Promise.all(['data/draws.json', 'data/analysis.json'].map(u => fetch(u, {cache: 'no-cache'}).then(r => { if(!r.ok) throw new Error(u); return r.json(); })));
     const grew = !D.length || d.length > D.length;
     D = d; A = a;
-    $('dataInfo').textContent = `${fmt(D[D.length - 1].no)}회까지`;
+    $('dataInfo').textContent = `${fmt(D[D.length - 1].no)}회까지`; Cloud.paint();
     paintBadge();
     return grew;
   }catch(e){ return false; }
 }
-(async () => { await load(); show(view); })();
+(async () => { await load(); show(view); if(LS.get('cloud', false)) Cloud.init().catch(() => {}); })();
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
