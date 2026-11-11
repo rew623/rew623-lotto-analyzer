@@ -67,7 +67,7 @@ function countdown(t){
 }
 // 동행복권은 2025년 홈페이지를 바꿔 옛 주소(gameResult.do·TotalGame.jsp)가 오류·빈 화면 → 새 주소만 쓴다(2026-11)
 // 구매는 로그인·예치금이 필요해 깊은 주소가 자주 막힘 → 첫 화면으로 보내고 '사는 법'을 접어 둔다
-const VER = '1.5.1';
+const VER = '1.6.0';
 const LINKS = {
   buy: 'https://www.dhlottery.co.kr/',
   onair: 'https://onair.imbc.com/',
@@ -677,5 +677,22 @@ async function load(){
     return grew;
   }catch(e){ return false; }
 }
-(async () => { await load(); show(view); if(LS.get('cloud', false)) Cloud.init().catch(() => {}); })();
+// 버전 표시 + 새 버전 알림: sw.js 의 VERSION 을 새로 받아 앱의 VER 과 다르면 위에 '업데이트' 띠 (열 때·다시 볼 때·10분마다)
+$('ver').textContent = 'v' + VER;
+async function checkUpdate(){
+  try{
+    const t = await (await fetch('sw.js?t=' + Date.now(), {cache: 'no-store'})).text();
+    const v = (/VERSION\s*=\s*'([^']+)'/.exec(t) || [])[1];
+    if(v && v !== VER){ $('updTxt').textContent = `새 버전 v${v} 이 나왔어요`; $('upd').hidden = false; document.body.classList.add('has-upd'); }
+  }catch(e){}
+}
+$('updBtn').onclick = async () => {
+  $('updBtn').textContent = '받는 중…';
+  try{ const r = await navigator.serviceWorker?.getRegistration(); await r?.update(); }catch(e){}
+  try{ for(const k of await caches.keys()) await caches.delete(k); }catch(e){}
+  location.reload();
+};
+document.addEventListener('visibilitychange', () => { if(!document.hidden) checkUpdate(); });
+setInterval(checkUpdate, 600e3);
+(async () => { await load(); show(view); checkUpdate(); if(LS.get('cloud', false)) Cloud.init().catch(() => {}); })();
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
