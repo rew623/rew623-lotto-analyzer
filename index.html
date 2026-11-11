@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>로또 노트</title>
+<meta name="theme-color" content="#1F2A44">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jua&family=Gowun+Dodum&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <header class="bar"><span class="logo">로또 노트</span><span class="bar-sub" id="dataInfo"></span></header>
+  <main id="main"></main>
+  <p class="legal">로또는 매 회 독립 추첨이라 어떤 분석도 당첨 확률을 바꾸지 못합니다. 참고·재미용이며 당첨을 보장하지 않습니다. 당첨번호 출처: 동행복권(공개 미러). 당첨금 수령 전 동행복권에서 꼭 확인하세요.</p>
+</div>
+<nav class="tabbar" id="tabbar">
+  <button data-v="home" type="button"><span class="ti">🏠</span><span>홈</span></button>
+  <button data-v="tickets" type="button"><span class="ti">🎟️</span><span>내 복권</span><span class="dot" id="tkBadge" hidden></span></button>
+  <button data-v="analysis" type="button"><span class="ti">📊</span><span>분석</span></button>
+</nav>
+<input type="file" id="scanFile" accept="image/*" capture="environment" hidden>
+<script src="app.js"></script>
+</body>
+</html>

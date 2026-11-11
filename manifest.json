@@ -1,0 +1,2 @@
+{"name": "로또 노트", "short_name": "로또 노트", "start_url": "./", "display": "standalone", "background_color": "#F4EEE2", "theme_color": "#1F2A44",
+ "icons": [{"src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}]}
