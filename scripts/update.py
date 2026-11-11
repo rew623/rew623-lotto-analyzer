@@ -270,7 +270,18 @@ def _filtered(r):
 
 
 # (키, 이름, 뽑기 만들기, 많이 고르는 모양 피하기, 줄끼리 최대 겹침)
+def mine_ok(s):
+    """나만의 방식(2026-11-11): 1등을 덜 나누는 모양만. 1,233회 1등 인원÷기대로 앞 절반에서 찾고 뒤 절반에서 확인한 두 신호
+    — 32 이상 번호가 많을수록 덜 나눔, 7칸 줄마다 하나씩 고르게 퍼진 모양은 더 나눔. 튀지 않게: 32↑ 3~4개, 22 이하 1개↑, 홀수 1~5, 연속 1쌍 이하"""
+    s = sorted(s)
+    hi = sum(x > 31 for x in s)
+    rows = collections.Counter((x - 1) // 7 for x in s)
+    return 3 <= hi <= 4 and any(x <= 22 for x in s) and 1 <= sum(x % 2 for x in s) <= 5 \
+        and sum(s[k + 1] - s[k] == 1 for k in range(5)) <= 1 and max(rows.values()) >= 2
+
+
 REC_METHODS = [
+    ("mine", "나만의 방식: 1등 덜 나누는 모양", lambda h: _any, True, 2),
     ("basic", "기본: 많이 고르는 모양 피하기", lambda h: _any, True, 2),
     ("random", "완전 무작위 (자동과 같음)", lambda h: _any, False, 6),
     ("hot", "핫: 최근 30회 많이 나온 20개 중", lambda h: _from_pool(_top(h, 30, False)), False, 3),
@@ -289,10 +300,24 @@ def rec_lines(h, method, seed, n=10, past=None):
         if len(out) == n:
             break
         s = tuple(pick(r))
-        if s in past or s in out or (avoid and crowdy(s)) or any(len(set(s) & set(o)) > ov for o in out):
+        if s in past or s in out or (avoid and crowdy(s)) or (method == "mine" and not mine_ok(s)) or any(len(set(s) & set(o)) > ov for o in out):
             continue
         out.append(s)
     return [list(x) for x in out]
+
+
+def mine_crowd(draws):
+    """실제 당첨번호가 '나만의 방식' 모양이었던 회차와 아닌 회차의 1등 인원 ÷ 기대(판매 장수 ÷ 8,145,060) — 1 미만이면 덜 나눔"""
+    g = {True: [0, 0.0, 0], False: [0, 0.0, 0]}
+    for d in draws:
+        if not d.get("sales") or d.get("w1") is None:
+            continue
+        e = d["sales"] / 1000 / 8145060
+        if e < 1:
+            continue
+        k = mine_ok(d["n"])
+        g[k][0] += d["w1"]; g[k][1] += e; g[k][2] += 1
+    return {("yes" if k else "no"): {"draws": v[2], "ratio": round(v[0] / v[1], 3), "ci": round(1.96 * math.sqrt(v[0]) / v[1], 3)} for k, v in g.items()}
 
 
 def rec_backtest(draws):
@@ -361,6 +386,7 @@ def analyze(draws):
         "crowd": crowd(draws),
         "elim": elimination(draws),
         "rec_bt": rec_backtest(draws),
+        "mine_crowd": mine_crowd(draws),
         "rec_next": {m[0]: rec_lines(draws, m[0], (draws[-1]["no"] + 1) * 7919) for m in REC_METHODS},
         "how1": {"draws": sum(1 for d in draws if d.get("wc")), "from": next((d["no"] for d in draws if d.get("wc")), None),
                  "auto": sum(d["wc"][0] for d in draws if d.get("wc")), "semi": sum(d["wc"][1] for d in draws if d.get("wc")),

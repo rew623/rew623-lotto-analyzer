@@ -67,7 +67,7 @@ function countdown(t){
 }
 // 동행복권은 2025년 홈페이지를 바꿔 옛 주소(gameResult.do·TotalGame.jsp)가 오류·빈 화면 → 새 주소만 쓴다(2026-11)
 // 구매는 로그인·예치금이 필요해 깊은 주소가 자주 막힘 → 첫 화면으로 보내고 '사는 법'을 접어 둔다
-const VER = '1.4.1';
+const VER = '1.5.0';
 const LINKS = {
   buy: 'https://www.dhlottery.co.kr/',
   onair: 'https://onair.imbc.com/',
@@ -110,7 +110,15 @@ function fixedLines(no, n = 10){
   }
   return out;
 }
+// 나만의 방식 (update.py mine_ok 와 같게) — 1등을 덜 나누는 모양: 32↑ 3~4개, 7칸 줄마다 하나씩 고르게 퍼진 모양 빼기, 튀지 않게 22 이하 1개↑·홀수 1~5·연속 1쌍 이하
+function mineOk(s){
+  const hi = s.filter(x => x > 31).length, rows = {};
+  s.forEach(x => { const r = Math.floor((x - 1) / 7); rows[r] = (rows[r] || 0) + 1; });
+  const odd = s.filter(x => x % 2).length;
+  return hi >= 3 && hi <= 4 && s.some(x => x <= 22) && odd >= 1 && odd <= 5 && feats(s).consec <= 1 && Math.max(...Object.values(rows)) >= 2;
+}
 const METHODS = [
+  ['mine', '나만의 방식', '1등이 되면 덜 나누는 모양(32 이상 3~4개, 너무 고르게 퍼진 모양 빼기)에, 튀지 않게 평범한 모양만'],
   ['basic', '기본', '많이 고르는 모양(생일 번호만·연속 여러 쌍·등차·한쪽 몰림)을 피해 무작위로'],
   ['random', '완전 무작위', '자동과 같음'],
   ['hot', '핫 번호', '최근 30회 많이 나온 20개 중에서'],
@@ -118,8 +126,9 @@ const METHODS = [
   ['overdue', '미출현 번호', '오래 안 나온 20개 중에서'],
   ['filter', '패턴 맞춤', '홀짝·고저 2~4, 합 100~175, 연속 1쌍 이하, AC 7 이상인 조합만'],
 ];
+try{ if(!localStorage.getItem('lt.prefV2')){ const p = JSON.parse(localStorage.getItem('lt.pref') || '{}'); if(p.method === 'basic'){ p.method = 'mine'; localStorage.setItem('lt.pref', JSON.stringify(p)); } localStorage.setItem('lt.prefV2', '1'); } }catch(e){}
 const Pref = {
-  get(){ return {method: 'basic', lines: 10, ...LS.get('pref', {})}; },
+  get(){ return {method: 'mine', lines: 10, ...LS.get('pref', {})}; },
   set(p){ LS.set('pref', {...this.get(), ...p}); },
 };
 function methodPick(key){
@@ -129,7 +138,7 @@ function methodPick(key){
   if(key === 'hot'){ const m = c(30); pool = [...all].sort((a, b) => (m[b] || 0) - (m[a] || 0) || a - b).slice(0, 20); }
   if(key === 'cold'){ const m = c(30); pool = [...all].sort((a, b) => (m[a] || 0) - (m[b] || 0) || a - b).slice(0, 20); }
   if(key === 'overdue'){ const last = {}; D.forEach((d, i) => d.n.forEach(x => last[x] = i)); pool = [...all].sort((a, b) => (last[a] ?? -1) - (last[b] ?? -1) || a - b).slice(0, 20); }
-  return {pool, avoid: key === 'basic', filter: key === 'filter', ov: key === 'basic' || key === 'filter' ? 2 : key === 'random' ? 6 : 3};
+  return {pool, mine: key === 'mine', avoid: key === 'basic' || key === 'mine', filter: key === 'filter', ov: key === 'basic' || key === 'filter' || key === 'mine' ? 2 : key === 'random' ? 6 : 3};
 }
 // 같은 규칙으로 변형 v 번째 추천(회차·방식·변형으로 씨앗) — 변형 0 이면 update.py 가 만든 값을 그대로
 function recLines(no, key, v, n){
@@ -139,7 +148,7 @@ function recLines(no, key, v, n){
     const src = M.pool || Array.from({length: 45}, (_, i) => i + 1), a = [...src];
     for(let i = a.length - 1; i > 0; i--){ const j = Math.floor(r() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
     const s = a.slice(0, 6).sort((x, y) => x - y), k = s.join();
-    if(past.has(k) || out.some(o => o.join() === k) || (M.avoid && crowdy(s)) || (M.filter && !passFilter(feats(s)))) continue;
+    if(past.has(k) || out.some(o => o.join() === k) || (M.avoid && crowdy(s)) || (M.mine && !mineOk(s)) || (M.filter && !passFilter(feats(s)))) continue;
     if(out.some(o => o.filter(x => s.includes(x)).length > M.ov)) continue;
     out.push(s);
   }
@@ -535,6 +544,7 @@ function recReport(){
       <div class="mbar" aria-label="회수율 ${fmt(m.roi, 1)}%"><i style="width:${(m.roi / mx * 100).toFixed(1)}%"></i><s style="left:${(BASE / mx * 100).toFixed(1)}%"></s></div>
       <div class="mm"><span>낸 돈<b>${man(m.spent)}원</b></span><span>받은 돈<b>${man(m.won)}원</b></span><span class="loss">손해<b>−${man(m.spent - m.won)}원</b></span></div>
       <div class="mchips">${[[3, m.rank[0] + m.rank[1] + m.rank[2], '3등↑'], [4, m.rank[3], '4등'], [5, m.rank[4], '5등']].map(([r, c, t]) => `<span class="rkb r${r} ${c ? '' : 'zero'}">${t} ${fmt(c)}번</span>`).join('')}</div>
+      ${m.key === 'mine' && A.mine_crowd ? `<p class="mnote">👥 1등이면 나눌 사람 <b>${fmt(A.mine_crowd.yes.ratio, 2)}배</b> (실제 ${fmt(A.mine_crowd.yes.draws)}회, 나머지 모양은 ${fmt(A.mine_crowd.no.ratio, 2)}배) — 맞힐 확률은 같고 1등 금액이 그만큼 큼</p>` : ''}
       ${big.length ? `<p class="mnote">⭐ ${big.map(h => `${h[0]}회 ${h[1]}등 ${won(h[2])}`).join(', ')} — 이 한 번을 빼면 ${fmt(no3(m), 1)}%</p>` : ''}
       ${h4.length ? `<details class="fold mini"><summary>4등 맞은 회차 ${h4.length}번</summary><div class="fold-b">${h4.map(h => `<span class="hitc">${h[0]}회</span>`).join('')}</div></details>` : ''}
     </div>`;
@@ -542,7 +552,7 @@ function recReport(){
   return `<section class="card"><h2>추천 방식 성적표</h2>
       <p class="cap">${fmt(BT.from)}회부터 ${fmt(W)}주 동안 <b>매주 10줄(1만 원)</b>씩, 그 주 직전 기록만 보고 샀다면</p>
       <div class="verdict"><b>${lucky ? `1위 '${esc(nm(M[0].key))}'는 3등 한 번 덕분` : '어느 방식도 앞서지 않습니다'}</b>
-        <span>4·5등만 보면 여섯 방식 모두 ${fmt(lo, 1)}~${fmt(hi, 1)}% — 무작위로 샀을 때 보통(${fmt(BASE, 0)}%)과 같은 범위. 1만 원을 내면 ${fmt(Math.round(lo) * 100)}~${fmt(Math.round(hi) * 100)}원쯤 돌아옵니다.</span></div>
+        <span>4·5등만 보면 ${M.length}가지 방식 모두 ${fmt(lo, 1)}~${fmt(hi, 1)}% — 무작위로 샀을 때 보통(${fmt(BASE, 0)}%)과 같은 범위. 1만 원을 내면 ${fmt(Math.round(lo) * 100)}~${fmt(Math.round(hi) * 100)}원쯤 돌아옵니다.</span></div>
       <div class="legend"><span><i class="lg-bar"></i>받은 돈 ÷ 낸 돈</span><span><i class="lg-mark"></i>무작위 보통 18%</span></div>
       <div class="mcards">${cards}</div>
       ${fold('결과 읽는 법', `${fmt(W)}주×10줄 = ${fmt(BT.methods[0].lines)}줄. 무작위로 사도 5등은 약 ${fmt(BT.methods[0].lines * 0.0224384)}번(± ${fmt(Math.sqrt(BT.methods[0].lines * 0.0224384) * 2)}), 4등은 약 ${fmt(BT.methods[0].lines * 0.0013649, 1)}번(± ${fmt(Math.sqrt(BT.methods[0].lines * 0.0013649) * 2, 1)})은 운으로 오르내립니다. 모든 방식이 이 범위 안이라 어느 방식도 확률이 더 높지 않습니다. 3등(150만 원 안팎) 한 번이 회수율을 10%p 넘게 올리므로, 위 순위는 실력보다 운입니다. 1·2등은 한 번도 없었고 이론상 기대도 0.0014번입니다.`)}
@@ -608,7 +618,7 @@ function renderSettings(){
   const bt = (k) => BT?.methods.find(m => m.key === k);
   $('main').innerHTML = `<section class="card"><h2>추천 방식</h2><p class="cap">홈의 추천 번호를 어떤 방식으로 고를지. 지난 ${BT ? fmt(BT.methods[0].draws) : '-'}회에 10줄씩 썼다면의 성적도 같이</p>
       <div class="opts">${METHODS.map(([k, t, d]) => { const b = bt(k); return `<button type="button" class="optc ${P.method === k ? 'on' : ''}" data-m="${k}"><span class="r"></span><span class="t"><b>${esc(t)}</b><small>${esc(d)}</small>${b ? `<small class="bt">5등 ${fmt(b.rank[4])} · 4등 ${fmt(b.rank[3])}${b.rank[2] ? ` · 3등 ${b.rank[2]}` : ''} · 회수율 ${fmt(b.roi, 1)}%</small>` : ''}</span></button>`; }).join('')}</div>
-      ${fold('어느 방식이 제일 좋나요?', '성적 차이는 운으로 생기는 범위 안이라 어느 방식도 확률이 더 높지 않습니다(분석 탭 성적표). 기본은 당첨됐을 때 나눠 가질 사람이 적은 쪽이라 골라 두었습니다.')}</section>
+      ${fold('어느 방식이 제일 좋나요?', `맞힐 확률은 어느 방식이든 같습니다(분석 탭 성적표 — 4·5등이 모두 무작위 범위). 실제로 차이가 나는 건 1등이 됐을 때 나눌 사람 수뿐이라, 그걸 줄이는 <b>나만의 방식</b>을 기본으로 둡니다.${A.mine_crowd ? ` 실제 당첨번호가 이 모양이었던 ${fmt(A.mine_crowd.yes.draws)}회는 1등이 기대의 ${fmt(A.mine_crowd.yes.ratio, 2)}배(±${fmt(A.mine_crowd.yes.ci, 2)})만 나왔고 나머지는 ${fmt(A.mine_crowd.no.ratio, 2)}배.` : ''} '지난 성적 1위 방식 따라가기'도 시험했지만 무작위와 구별되지 않아 넣지 않았습니다.`)}</section>
     <section class="card"><h2>줄 수</h2><div class="seg" style="margin:8px 0 0;">${[5, 10].map(n => `<button type="button" data-n="${n}" class="${P.lines === n ? 'on' : ''}">${n}줄</button>`).join('')}</div></section>
     <section class="card"><h2>새 추천 받기</h2><p class="cap">같은 방식으로 ${sc.no}회 번호를 다시 뽑습니다. 지금 ${v + 1}번째 추천</p>
       <div class="row"><button class="btn" id="newRec" type="button">🎲 새 추천 받기</button>${v ? '<button class="btn ghost" id="resetRec" type="button">처음 추천으로</button>' : ''}</div></section>
