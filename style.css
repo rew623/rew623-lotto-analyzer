@@ -144,3 +144,14 @@ main.slide-l{animation:sl .22s ease;} main.slide-r{animation:sr .22s ease;}
 @keyframes sl{from{transform:translateX(28px); opacity:.4}} @keyframes sr{from{transform:translateX(-28px); opacity:.4}}
 @media (prefers-reduced-motion: reduce){ main.slide-l, main.slide-r{animation:none;} }
 .to-top{position:fixed; right:16px; bottom:calc(84px + env(safe-area-inset-bottom)); z-index:19; width:44px; height:44px; border-radius:50%; border:none; background:var(--card); color:var(--ink); font-family:'Jua'; font-size:20px; box-shadow:0 4px 14px rgba(31,42,68,.2); cursor:pointer;}
+
+/* 추천 줄 고르기 */
+button.ln{width:100%; font:inherit; color:inherit; cursor:pointer; text-align:left;}
+.ln.pickable .tick{margin-left:auto; width:24px; height:24px; border-radius:50%; border:1.5px solid var(--line); display:grid; place-items:center; font-family:'Jua'; color:#fff;}
+.ln.pickable.on{border-color:var(--ink); background:var(--card);}
+.ln.pickable.on .tick{background:var(--ink); border-color:var(--ink);}
+@media (prefers-color-scheme: dark){ .ln.pickable.on{border-color:var(--gold);} .ln.pickable.on .tick{background:var(--gold); border-color:var(--gold); color:#2E2200;} }
+.split{display:grid; grid-template-columns:repeat(3, 1fr); gap:8px;}
+.split div{background:var(--card2); border-radius:14px; padding:10px; text-align:center; display:flex; flex-direction:column;}
+.split b{font-family:'Jua'; font-weight:400; font-size:22px; color:var(--ink);} .split span{font-size:12.5px; color:var(--sub);}
+@media (prefers-color-scheme: dark){ .split b{color:var(--gold);} }

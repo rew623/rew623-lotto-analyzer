@@ -66,6 +66,7 @@ function countdown(t){
   return d ? `${d}일 ${two(h)}:${two(m)}:${two(s % 60)}` : `${two(h)}:${two(m)}:${two(s % 60)}`;
 }
 const LINKS = {
+  buy: 'https://el.dhlottery.co.kr/game/TotalGame.jsp?LottoId=LO40',   // 동행복권 로또6/45 인터넷 구매(로그인·예치금 필요, 1인 1주 5천 원까지)
   onair: 'https://onair.imbc.com/',
   result: 'https://www.dhlottery.co.kr/gameResult.do?method=byWin',
   yt: 'https://www.youtube.com/results?search_query=' + encodeURIComponent('로또 6/45 추첨 방송'),
@@ -90,6 +91,21 @@ function rand6(){
   crypto.getRandomValues(r);
   for(let i = 44; i > 0; i--){ const j = r[i] % (i + 1); [a[i], a[j]] = [a[j], a[i]]; }
   return a.slice(0, 6).sort((x, y) => x - y);
+}
+// 회차마다 고정된 추천: 회차 번호로 씨앗을 정해 누가 언제 열어도 같은 10줄 (다시 뽑기로 바꾸지 않음)
+function seeded(seed){ let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function fixedLines(no, n = 10){
+  const r = seeded(no * 2654435761), past = new Set(D.map(d => d.n.join())), out = [], seen = new Set();
+  while(out.length < n){
+    const a = Array.from({length: 45}, (_, i) => i + 1);
+    for(let i = 44; i > 0; i--){ const j = Math.floor(r() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+    const s = a.slice(0, 6).sort((x, y) => x - y), k = s.join();
+    if(crowdy(s) || past.has(k) || seen.has(k)) continue;
+    // 10줄끼리 3개 넘게 겹치지 않게(같은 번호에 몰리지 않도록)
+    if(out.some(o => o.filter(x => s.includes(x)).length > 2)) continue;
+    seen.add(k); out.push(s);
+  }
+  return out;
 }
 function gen(o){
   const past = new Set(D.map(d => d.n.join()));
@@ -173,9 +189,8 @@ $('scanFile').onchange = async (e) => {
 let timer = null, poll = null;
 function renderHome(){
   const last = D[D.length - 1], sc = schedule();
-  const recO = LS.get('recOpts', {crowd: true, filter: false});
-  let rec = LS.get('rec', null);
-  if(!rec || rec.draw !== sc.no){ rec = {draw: sc.no, lines: Array.from({length: 5}, () => gen(recO))}; LS.set('rec', rec); }
+  const rec = {draw: sc.no, lines: fixedLines(sc.no)};
+  const picked = new Set(LS.get('picked' + sc.no, [0, 1, 2, 3, 4]));
   const mineNext = Tickets.all().filter(t => t.draw === sc.no).reduce((a, t) => a + t.lines.length, 0);
   $('main').innerHTML = `
     <section class="card hero">
@@ -183,8 +198,9 @@ function renderHome(){
         <div class="k">${sc.no}회 추첨 끝 · 결과가 곧 들어옵니다</div>`
       : `<div class="k">${sc.no}회 추첨까지 · ${sc.t.getMonth() + 1}월 ${sc.t.getDate()}일(토) 20:35</div><div class="big" id="cd">${countdown(sc.t)}</div>`}
       <div class="row">
-        <a class="btn gold sm" href="${LINKS.onair}" target="_blank" rel="noopener">📺 MBC 생방송</a>
-        <a class="btn ghost sm" href="${LINKS.result}" target="_blank" rel="noopener">공식 당첨결과</a>
+        <a class="btn gold sm" href="${LINKS.buy}" target="_blank" rel="noopener">🛒 구매</a>
+        <a class="btn ghost sm" href="${LINKS.onair}" target="_blank" rel="noopener">📺 생방송</a>
+        <a class="btn ghost sm" href="${LINKS.result}" target="_blank" rel="noopener">공식 결과</a>
         <a class="btn ghost sm" href="${LINKS.yt}" target="_blank" rel="noopener">지난 방송</a>
       </div>
       ${mineNext ? `<div class="k" style="margin-top:10px;">이번 회차 내 복권 ${mineNext}게임</div>` : ''}
@@ -195,15 +211,22 @@ function renderHome(){
       <p class="cap" style="margin:0;">1등 ${last.w1 != null ? fmt(last.w1) + '명' : '-'} · 1인당 ${won(last.p1)}</p>
     </section>
     <section class="card">
-      <h2>${sc.no}회 추천 번호</h2>
-      ${fold('어떻게 고른 번호인가요?', '무작위로 뽑되, 사람들이 많이 고르는 모양(생일 번호만, 연속 여러 쌍, 등차, 한쪽 몰림)과 역대 1등 조합을 뺐습니다. 어떤 번호든 1등 확률은 1/8,145,060로 같아서, 당첨됐을 때 나눠 가질 사람이 적은 쪽을 고르는 것만 의미가 있습니다. 근거는 분석 탭.')}
-      <div class="lines">${rec.lines.map((s, i) => `<div class="ln"><span class="lab">${'ABCDE'[i]}</span><span class="balls">${s.map(n => ball(n, 'sm')).join('')}</span></div>`).join('')}</div>
-      <label class="opt"><input type="checkbox" id="oFilter" ${recO.filter ? 'checked' : ''}><span>시중 필터도 적용<small>홀짝·고저 2~4, 합 100~175, 연속 1쌍 이하, AC 7↑ · 확률엔 효과 없음</small></span></label>
-      <div class="row" style="margin-top:12px;"><button class="btn" id="reGen" type="button">🎲 다시 뽑기</button><button class="btn ghost" id="keep" type="button">내 복권에 담기</button></div>
+      <div class="row" style="justify-content:space-between;"><h2>${sc.no}회 추천 10줄</h2><span class="pill">이번 회차 고정</span></div>
+      ${fold('어떻게 고른 번호인가요?', '회차 번호로 정해진 고정 10줄이라 몇 번을 열어도 같습니다. 사람들이 많이 고르는 모양(생일 번호만, 연속 여러 쌍, 등차, 한쪽 몰림)과 역대 1등 조합을 빼고, 10줄끼리 3개 넘게 겹치지 않게 골랐습니다. 어떤 번호든 한 줄 1등 확률은 1/8,145,060로 같고, 당첨됐을 때 나눠 가질 사람이 적은 쪽입니다. 근거는 분석 탭.')}
+      <div class="lines" id="recL">${rec.lines.map((s, i) => `<button type="button" class="ln pickable ${picked.has(i) ? 'on' : ''}" data-i="${i}"><span class="lab">${i + 1}</span><span class="balls">${s.map(n => ball(n, 'sm')).join('')}</span><span class="tick">${picked.has(i) ? '✓' : ''}</span></button>`).join('')}</div>
+      <p class="cap" style="margin:10px 0 0;">살 줄을 눌러 고르세요 · ${picked.size}줄 ${fmt(picked.size * 1000)}원${picked.size > 5 ? ' · 인터넷 구매는 1주 5천 원까지' : ''}</p>
+      <div class="row" style="margin-top:10px;"><a class="btn gold" href="${LINKS.buy}" target="_blank" rel="noopener">🛒 동행복권에서 사기</a><button class="btn ghost" id="keep" type="button" ${picked.size ? '' : 'disabled'}>내 복권에 담기</button></div>
     </section>`;
-  $('reGen').onclick = () => { const o = {crowd: true, filter: $('oFilter').checked}; LS.set('recOpts', o); LS.set('rec', {draw: sc.no, lines: Array.from({length: 5}, () => gen(o))}); renderHome(); };
-  $('oFilter').onchange = () => LS.set('recOpts', {crowd: true, filter: $('oFilter').checked});
-  $('keep').onclick = () => { Tickets.add({draw: sc.no, lines: LS.get('rec').lines, kinds: Array(5).fill('추천'), src: '추천'}); toast(`${sc.no}회로 5게임 담음 (산 번호와 다르면 지우세요)`); };
+  $('recL').onclick = (e) => {
+    const b = e.target.closest('[data-i]'); if(!b) return;
+    const k = +b.dataset.i; picked.has(k) ? picked.delete(k) : picked.add(k);
+    LS.set('picked' + sc.no, [...picked]); renderHome();
+  };
+  $('keep').onclick = () => {
+    const ls = [...picked].sort((a, b) => a - b).map(k => rec.lines[k]);
+    for(let i = 0; i < ls.length; i += 5) Tickets.add({draw: sc.no, lines: ls.slice(i, i + 5), kinds: Array(Math.min(5, ls.length - i)).fill('추천'), src: '추천'});   // 한 장 5줄씩
+    toast(`${sc.no}회 ${ls.length}줄 담음 · 산 뒤 QR로 찍으면 더 정확해요`);
+  };
   clearInterval(timer);
   if(!sc.pending) timer = setInterval(() => { if($('cd')) $('cd').textContent = countdown(sc.t); else clearInterval(timer); if(Date.now() >= sc.t.getTime()) renderHome(); }, 1000);
   // 추첨 뒤 결과가 들어오기 전엔 2분마다 다시 받아 본다
@@ -281,6 +304,9 @@ function anaRank(){
   const E = A.elim || [];
   return `<div class="note"><b>${beat.length ? '무작위보다 확실히 나은 방법이 있습니다' : '1위 방법도 무작위와 구별되지 않습니다'}</b>
       ${fold('자세히', `승률 = 5등 이상(3개↑) 맞은 비율. 무작위 이론값 ${fmt(B.theory_ge3, 2)}%, 운으로 나오는 범위 ${fmt(lo, 2)}~${fmt(hi, 2)}%. 모든 방법이 이 안에 있습니다. '그때그때 승률 1위 방법 따라가기'도 표본외로 시험했지만 같은 범위입니다.`)}</div>
+    ${A.how1?.draws ? (() => { const h = A.how1, t = h.auto + h.semi + h.manual; return `<section class="card"><h2>분석해서 산 사람이 더 잘 맞나?</h2><p class="cap">1등 당첨자가 번호를 고른 방식 · ${fmt(h.from)}회부터 ${fmt(h.draws)}회, ${fmt(t)}명</p>
+      <div class="split"><div><b>${fmt(h.auto / t * 100, 1)}%</b><span>자동</span></div><div><b>${fmt(h.manual / t * 100, 1)}%</b><span>수동(직접 고름)</span></div><div><b>${fmt(h.semi / t * 100, 1)}%</b><span>반자동</span></div></div>
+      ${fold('어떻게 봐야 하나요?', '수동으로 산 사람이 1등의 약 3분의 1입니다. 수동이 더 잘 맞는지는 판매 중 수동 비율과 비교해야 하는데, 그 비율은 이 데이터에 없어 맞대어 보지 못했습니다(판매도 30% 안팎이 수동이면 차이 없음). 분석 사이트·유튜브의 "적중" 사례는 맞은 것만 골라 보여 주는 경우가 많아, 더 잘 맞아 보이는 착시가 생깁니다.')}</section>`; })() : ''}
     ${E.length ? `<section class="card"><h2>안 나올 것 같은 조합을 지우면?</h2><p class="cap">지운 조합 비율 = 실제 당첨번호가 그 안에 있던 비율 → 남은 조합의 확률이 오르지 않음</p>
       <table><thead><tr><th>지우는 패턴</th><th class="n">지운 조합</th><th class="n">실제 당첨</th></tr></thead>
       <tbody>${E.map(e => `<tr><td>${esc(e.name)}</td><td class="n">${fmt(e.combo_pct, 2)}%</td><td class="n"><b>${fmt(e.win_pct, 2)}%</b></td></tr>`).join('')}</tbody></table>

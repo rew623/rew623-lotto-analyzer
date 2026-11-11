@@ -27,6 +27,9 @@ def load_draws():
             pz = lambda i: (dvs[i] or {}).get("prize")
             by[int(d["draw_no"])] = {"no": int(d["draw_no"]), "date": d["date"][:10], "n": n, "b": int(d["bonus_no"]),
                                      "w1": (dvs[0] or {}).get("winners"), "p1": pz(0), "p2": pz(1), "p3": pz(2), "sales": d.get("total_sales_amount")}
+            wc = d.get("winners_combination") or {}
+            if wc:   # 1등 번호 고른 방식(자동·반자동·수동 인원) — 262회부터
+                by[int(d["draw_no"])]["wc"] = [wc.get("auto", 0) or 0, wc.get("semi_auto", 0) or 0, wc.get("manual", 0) or 0]
         print(f"공개 JSON {len(by)}회")
     except Exception as e:
         print("공개 JSON 실패:", type(e).__name__, e)
@@ -270,6 +273,9 @@ def analyze(draws):
         "backtest": backtest(draws),
         "crowd": crowd(draws),
         "elim": elimination(draws),
+        "how1": {"draws": sum(1 for d in draws if d.get("wc")), "from": next((d["no"] for d in draws if d.get("wc")), None),
+                 "auto": sum(d["wc"][0] for d in draws if d.get("wc")), "semi": sum(d["wc"][1] for d in draws if d.get("wc")),
+                 "manual": sum(d["wc"][2] for d in draws if d.get("wc"))},
     }
 
 
