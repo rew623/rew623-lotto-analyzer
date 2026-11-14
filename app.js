@@ -67,7 +67,7 @@ function countdown(t){
 }
 // 동행복권은 2025년 홈페이지를 바꿔 옛 주소(gameResult.do·TotalGame.jsp)가 오류·빈 화면 → 새 주소만 쓴다(2026-11)
 // 구매는 로그인·예치금이 필요해 깊은 주소가 자주 막힘 → 첫 화면으로 보내고 '사는 법'을 접어 둔다
-const VER = '1.7.0';
+const VER = '1.8.0';
 const LINKS = {
   buy: 'https://www.dhlottery.co.kr/',
   onair: 'https://onair.imbc.com/',
@@ -412,7 +412,7 @@ function renderHome(){
   $('main').innerHTML = `
     <section class="card hero">
       ${sc.pending ? `<div class="row" style="margin:0 0 6px;">${sc.live ? '<span class="live">LIVE 추첨 중</span>' : '<span class="pill wait">결과 집계 중</span>'}</div>
-        <div class="k">${sc.no}회 추첨 끝 · 결과가 곧 들어옵니다</div>`
+        <div class="k">${sc.no}회 추첨 끝 · 결과가 나오면 1분 안에 저절로 바뀝니다</div><button class="btn sm" id="chk" type="button" style="margin:8px 0 4px;">🔄 지금 확인</button>`
       : `<div class="k">${sc.no}회 추첨까지 · ${sc.t.getMonth() + 1}월 ${sc.t.getDate()}일(토) 20:35</div><div class="big" id="cd">${countdown(sc.t)}</div>`}
       <div class="row">
         <a class="btn gold sm" href="${LINKS.buy}" target="_blank" rel="noopener">🛒 구매</a>
@@ -429,28 +429,31 @@ function renderHome(){
       ${fold('등수별 당첨금·확률', prizeTable(last))}
       ${fold('인터넷으로 사는 법', `<ol class="steps"><li>🛒 구매 → 동행복권 로그인(처음이면 회원가입·본인인증)</li><li>마이페이지에서 <b>예치금 충전</b>(가상계좌·간편충전)</li><li>위 메뉴 <b>로또6/45 → 구매하기</b> → 자동·수동 고르기</li><li>산 뒤 마이페이지 구매내역의 QR(또는 번호)을 '내 복권'에 넣기</li></ol><p class="cap" style="margin:6px 0 0;">인터넷은 1인 1회차 5,000원(5게임)까지 · 토요일 20시에 판매 마감, 일요일 아침 6시에 다시 열림(시간은 동행복권 안내가 우선) · 휴대폰 화면이 깨지면 브라우저 메뉴의 'PC 버전'.</p>`)}
     </section>
-    <section class="card">
+    ${last.tmp ? `<section class="card"><h2>${sc.no}회 추천</h2><p class="cap" style="margin:6px 0 0;">결과를 방금 받아 와서, 이번 회차 고정 추천은 분석이 끝나면 나옵니다(보통 30분 안). 지금 만들면 나중에 번호가 바뀌어서 기다립니다.</p></section>` : `<section class="card">
       <div class="row" style="justify-content:space-between;"><h2>${sc.no}회 추천 ${rec.lines.length}줄</h2><button class="pill link" data-goto="settings" type="button">${esc(mName)}${v ? ` · ${v + 1}번째` : ''} ›</button></div>
       ${fold('어떻게 고른 번호인가요?', `이번 회차엔 고정이라 몇 번을 열어도 같습니다. 방식: ${esc(METHODS.find(m => m[0] === P.method)?.[2] || '')}. 역대 1등 조합은 빼고, 줄끼리 많이 겹치지 않게 골랐습니다. 방식은 설정에서 바꿉니다. 지난 회차에 이 방식을 썼다면 어땠는지는 분석 탭 '추천 방식 성적표'.`)}
       <div class="lines" id="recL">${rec.lines.map((s, i) => `<button type="button" class="ln pickable ${picked.has(i) ? 'on' : ''}" data-i="${i}"><span class="lab">${i + 1}</span><span class="balls">${s.map(n => ball(n, 'sm')).join('')}</span><span class="tick">${picked.has(i) ? '✓' : ''}</span></button>`).join('')}</div>
       <p class="cap" style="margin:10px 0 0;">살 줄을 눌러 고르세요 · ${picked.size}줄 ${fmt(picked.size * 1000)}원${picked.size > 5 ? ' · 인터넷 구매는 1주 5천 원까지' : ''}</p>
       <div class="row" style="margin-top:10px;"><a class="btn gold" href="${LINKS.buy}" target="_blank" rel="noopener">🛒 동행복권에서 사기</a><button class="btn ghost" id="keep" type="button" ${picked.size ? '' : 'disabled'}>내 복권에 담기</button></div>
-    </section>`;
-  $('recL').onclick = (e) => {
+    </section>`}`;
+  $('chk') && ($('chk').onclick = async () => { $('chk').textContent = '확인 중…'; if(await load()){ show(view); toast(`${sc.no}회 결과가 나왔어요!`); } else { $('chk').textContent = '🔄 지금 확인'; toast('아직 안 나왔어요 · 보통 추첨 20~40분 뒤'); } });
+  $('recL') && ($('recL').onclick = (e) => {
     const b = e.target.closest('[data-i]'); if(!b) return;
     const k = +b.dataset.i; picked.has(k) ? picked.delete(k) : picked.add(k);
     LS.set(pkey, [...picked]); renderHome();
-  };
-  $('keep').onclick = () => {
+  });
+  $('keep') && ($('keep').onclick = () => {
     const ls = [...picked].sort((a, b) => a - b).map(k => rec.lines[k]);
     for(let i = 0; i < ls.length; i += 5) Tickets.add({draw: sc.no, lines: ls.slice(i, i + 5), kinds: Array(Math.min(5, ls.length - i)).fill('추천'), src: '추천'});   // 한 장 5줄씩
     toast(`${sc.no}회 ${ls.length}줄 담음 · 산 뒤 QR로 찍으면 더 정확해요`);
-  };
+  });
   clearInterval(timer);
   if(!sc.pending) timer = setInterval(() => { if($('cd')) $('cd').textContent = countdown(sc.t); else clearInterval(timer); if(Date.now() >= sc.t.getTime()) renderHome(); }, 1000);
   // 추첨 뒤 결과가 들어오기 전엔 2분마다 다시 받아 본다
   clearInterval(poll);
-  if(sc.pending) poll = setInterval(async () => { if(document.hidden) return; if(await load() && schedule().no !== sc.no) renderHome(); }, 120e3);
+  if(sc.pending) poll = setInterval(async () => { if(document.hidden) return; if(await load()){ show(view); toast(`${sc.no}회 결과가 나왔어요!`); } }, 60e3);
+  // 결과를 임시로 붙인 상태면 우리 분석(추천 고정)이 올라올 때까지 2분마다 다시 받아 봄
+  else if(last.tmp) poll = setInterval(async () => { if(document.hidden) return; await load(); if(!D[D.length - 1].tmp){ show(view); toast('이번 회차 추천이 나왔어요'); } }, 120e3);
 }
 
 // 등수별 당첨금·확률 (1~3등은 그 회차 판매액에서 나눠 가져 매주 바뀜 → 지난 회차 금액)
@@ -699,12 +702,27 @@ document.addEventListener('contextmenu', e => { if(!e.target.closest('input, tex
 const topBtn = document.createElement('button'); topBtn.className = 'to-top'; topBtn.type = 'button'; topBtn.setAttribute('aria-label', '맨 위로'); topBtn.textContent = '↑'; topBtn.hidden = true;
 topBtn.onclick = () => window.scrollTo({top: 0, behavior: 'smooth'}); document.body.appendChild(topBtn);
 window.addEventListener('scroll', () => { topBtn.hidden = window.scrollY < 500; }, {passive: true});
+// 추첨 뒤엔 우리 데이터(매주 Actions → Pages, 늦으면 30분↑)를 기다리지 않고 공개 JSON(smok95/lotto, CORS 허용)에서 바로 받아 임시로 붙인다(tmp)
+async function liveResult(){
+  const no = D[D.length - 1].no + 1;
+  try{
+    const r = await fetch(`https://raw.githubusercontent.com/smok95/lotto/main/results/${no}.json?t=${Date.now()}`, {cache: 'no-store'});
+    if(!r.ok) return false;
+    const d = await r.json(), dv = d.divisions || [];
+    if(+d.draw_no !== no || !Array.isArray(d.numbers) || d.numbers.length !== 6) return false;
+    D.push({no, date: String(d.date).slice(0, 10), n: d.numbers.map(Number).sort((a, b) => a - b), b: +d.bonus_no,
+      w1: dv[0]?.winners, p1: dv[0]?.prize, p2: dv[1]?.prize, p3: dv[2]?.prize, sales: d.total_sales_amount, tmp: 1});
+    return true;
+  }catch(e){ return false; }
+}
 async function load(){
   try{
     const [d, a] = await Promise.all(['data/draws.json', 'data/analysis.json'].map(u => fetch(u, {cache: 'no-cache'}).then(r => { if(!r.ok) throw new Error(u); return r.json(); })));
-    const grew = !D.length || d.length > D.length;
+    const prevLast = D.length ? D[D.length - 1].no : 0;
     try{ const r = await fetch('data/rec_log.json', {cache: 'no-cache'}); if(r.ok) RLOG = await r.json(); }catch(e){}
     D = d; A = a;
+    if(schedule().pending) await liveResult();
+    const grew = D[D.length - 1].no > prevLast;
     $('dataInfo').textContent = `${fmt(D[D.length - 1].no)}회까지`; Cloud.paint();
     paintBadge();
     return grew;
@@ -725,7 +743,7 @@ $('updBtn').onclick = async () => {
   try{ for(const k of await caches.keys()) await caches.delete(k); }catch(e){}
   location.reload();
 };
-document.addEventListener('visibilitychange', () => { if(!document.hidden) checkUpdate(); });
+document.addEventListener('visibilitychange', async () => { if(document.hidden) return; checkUpdate(); if(D.length && schedule().pending && await load()) show(view); });
 setInterval(checkUpdate, 600e3);
 (async () => { await load(); show(view); checkUpdate(); if(LS.get('cloud', false)) Cloud.init().catch(() => {}); })();
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
